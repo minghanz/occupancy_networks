@@ -10,6 +10,7 @@ from im2mesh.utils.libsimplify import simplify_mesh
 from im2mesh.utils.libmise import MISE
 import time
 
+from pytorch3d.transforms import RotateAxisAngle, Rotate, random_rotations
 
 class Generator3D(object):
     '''  Generator class for Occupancy Networks.
@@ -49,6 +50,60 @@ class Generator3D(object):
         self.sample = sample
         self.simplify_nfaces = simplify_nfaces
         self.preprocessor = preprocessor
+
+    def generate_latent_conditioned(self, data):
+        self.model.eval()
+        device = self.device
+        stats_dict = {}
+
+        # print("data.keys()", data.keys())   # ['points', 'points.occ', 'points_iou', 'points_iou.occ', 'voxels', 'inputs', 'inputs.normals', 'idx']
+
+        inputs = data.get('inputs', torch.empty(1, 0)).to(device)
+        kwargs = {}
+
+        ### create a rotated copy:
+        # print(inputs.shape) # 1*300*3
+        angles = torch.rand(inputs.shape[0])*50
+        trot = RotateAxisAngle(angle=angles, axis="Z", degrees=True)
+        rotmats = trot.get_matrix()[:, :3, :3]
+        rot_d = {}
+        rot_d['angles'] = angles
+        rot_d['trot'] = trot
+        rot_d['rotmats'] = rotmats
+
+        inputs_rot = trot.transform_points(inputs.cpu())
+        inputs_rot = inputs_rot.to(device=inputs.device)
+
+        ### subsample points if needed
+        # print('before')
+        # print("inputs.shape", inputs.shape)
+        # print("inputs_rot.shape", inputs_rot.shape)
+        n_points_in = inputs.shape[1]
+        if n_points_in > 300:
+            idx_sample = torch.randperm(n_points_in)[:300]
+            inputs = inputs[:, idx_sample]
+            idx_sample_rot = torch.randperm(n_points_in)[:300]
+            inputs_rot = inputs_rot[:, idx_sample_rot]
+
+        # print('after')
+        # print("inputs.shape", inputs.shape)
+        # print("inputs_rot.shape", inputs_rot.shape)
+
+        # Preprocess if requires
+        if self.preprocessor is not None:
+            t0 = time.time()
+            with torch.no_grad():
+                inputs = self.preprocessor(inputs)
+                inputs_rot = self.preprocessor(inputs_rot)
+            stats_dict['time (preprocess)'] = time.time() - t0
+
+        # Encode inputs
+        t0 = time.time()
+        with torch.no_grad():
+            c = self.model.encode_inputs(inputs)
+            c_rot = self.model.encode_inputs(inputs_rot)
+
+        return c, c_rot, rot_d
 
     def generate_mesh(self, data, return_stats=True):
         ''' Generates the output mesh.

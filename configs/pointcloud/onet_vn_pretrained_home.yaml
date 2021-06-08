@@ -1,0 +1,9 @@
+inherit_from: configs/pointcloud/onet_vn_home.yaml
+data:
+  pointcloud_n: 300
+test:
+  model_file: model_best.pt
+generation:
+  generation_dir: trained_10epochs
+  generate_mesh: false
+  generate_pointcloud: false

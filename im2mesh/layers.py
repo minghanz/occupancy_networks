@@ -1,5 +1,57 @@
 import torch
 import torch.nn as nn
+from im2mesh.vn_layers import VNLinear, VNLeakyReLU, VNBatchNorm, VNLinearLeakyReLU, VNMaxPool
+
+# VN version of resnet
+class VNResnetBlockFC(nn.Module):
+    ''' Fully connected ResNet Block class.
+
+    Args:
+        size_in (int): input dimension
+        size_out (int): output dimension
+        size_h (int): hidden dimension
+    '''
+
+    def __init__(self, size_in, size_out=None, size_h=None, share_nonlinearity=False, negative_slope=0, use_batchnorm=False):
+        super().__init__()
+        # Attributes
+        if size_out is None:
+            size_out = size_in
+
+        if size_h is None:
+            size_h = min(size_in, size_out)
+
+        self.size_in = size_in
+        self.size_h = size_h
+        self.size_out = size_out
+        # Submodules
+        self.actvn = VNLeakyReLU(self.size_in, share_nonlinearity=share_nonlinearity, negative_slope=negative_slope)
+        self.fc_0_actvn = VNLinearLeakyReLU(self.size_in, self.size_h, dim=4, share_nonlinearity=share_nonlinearity, negative_slope=negative_slope, use_batchnorm=use_batchnorm)
+        # self.fc_0 = VNLinear(self.size_in, self.size_h)
+        self.fc_1 = VNLinear(self.size_h, self.size_out)
+
+        if size_in == size_out:
+            self.shortcut = None
+        else:
+            self.shortcut = VNLinear(self.size_in, self.size_out)
+        # Initialization
+        nn.init.zeros_(self.fc_1.map_to_feat.weight)
+
+    def forward(self, x):
+
+        x_act = self.actvn(x)
+        x_0 = self.fc_0_actvn(x_act)
+        dx = self.fc_1(x_0)
+
+        # net = self.fc_0(self.actvn(x))
+        # dx = self.fc_1(self.actvn(net))
+
+        if self.shortcut is not None:
+            x_s = self.shortcut(x)
+        else:
+            x_s = x
+
+        return x_s + dx
 
 
 # Resnet Blocks

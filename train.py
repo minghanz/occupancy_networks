@@ -1,6 +1,6 @@
 import torch
 import torch.optim as optim
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import os
 import argparse
@@ -43,6 +43,11 @@ else:
     raise ValueError('model_selection_mode must be '
                      'either maximize or minimize.')
 
+num_workers = cfg['training']['num_workers']
+batch_size_val = cfg['training']['batch_size_val']
+num_workers_val = cfg['training']['num_workers_val']
+batch_size_vis = cfg['training']['batch_size_vis']
+
 # Output directory
 if not os.path.exists(out_dir):
     os.makedirs(out_dir)
@@ -52,19 +57,19 @@ train_dataset = config.get_dataset('train', cfg)
 val_dataset = config.get_dataset('val', cfg)
 
 train_loader = torch.utils.data.DataLoader(
-    train_dataset, batch_size=batch_size, num_workers=4, shuffle=True,
+    train_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
     collate_fn=data.collate_remove_none,
     worker_init_fn=data.worker_init_fn)
 
 val_loader = torch.utils.data.DataLoader(
-    val_dataset, batch_size=10, num_workers=4, shuffle=False,
+    val_dataset, batch_size=batch_size_val, num_workers=num_workers_val, shuffle=False,
     collate_fn=data.collate_remove_none,
     worker_init_fn=data.worker_init_fn)
 
 
 # For visualizations
 vis_loader = torch.utils.data.DataLoader(
-    val_dataset, batch_size=12, shuffle=True,
+    val_dataset, batch_size=batch_size_vis, shuffle=True,
     collate_fn=data.collate_remove_none,
     worker_init_fn=data.worker_init_fn)
 data_vis = next(iter(vis_loader))

@@ -1,0 +1,9 @@
+inherit_from: configs/pointcloud/onet_vn.yaml
+data:
+  path: /media/sda1/datasets/extracted/for_occnet/preprocessed/ShapeNet
+training:
+  batch_size: 8
+  num_workers: 16
+  batch_size_val: 5
+  num_workers_val: 5
+  batch_size_vis: 6

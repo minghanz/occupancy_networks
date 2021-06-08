@@ -15,6 +15,7 @@ decoder_dict = {
     'cbatchnorm2': decoder.DecoderCBatchNorm2,
     'batchnorm': decoder.DecoderBatchNorm,
     'cbatchnorm_noresnet': decoder.DecoderCBatchNormNoResnet,
+    'cbatchnorm_vn': decoder.VNDecoderCBatchNorm
 }
 
 

@@ -1,0 +1,36 @@
+method: onet
+data:
+  input_type: pointcloud
+  path: data/ShapeNet
+  pointcloud_n: 300
+  pointcloud_noise: 0.005
+  points_subsample: 2048 
+model:
+  encoder_latent: null
+  decoder: cbatchnorm_vn
+  encoder: pointnet_resnet_vn
+  encoder_kwargs:
+    hidden_dim: 513 
+  c_dim: 513
+  z_dim: 0
+training:
+  out_dir:  out/pointcloud/onet_vn
+
+  ### default, probably overwritten by inheriting yaml
+  batch_size: 64
+  num_workers: 4
+  batch_size_val: 10
+  num_workers_val: 4
+  batch_size_vis: 12
+
+  model_selection_metric: iou
+  model_selection_mode: maximize
+test:
+  threshold: 0.2
+  eval_mesh: true
+  eval_pointcloud: false
+generation:
+  batch_size: 100000
+  refine: false
+  n_x: 128
+  n_z: 1
