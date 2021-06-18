@@ -206,7 +206,8 @@ def get_graph_feature_cross(x, k=20, idx=None):
     x = x.view(batch_size, -1, num_points)
     if idx is None:
         idx = knn(x, k=k)
-    device = torch.device('cuda')
+    # device = torch.device('cuda')
+    device = x.device
 
     idx_base = torch.arange(0, batch_size, device=device).view(-1, 1, 1)*num_points
 

@@ -101,6 +101,9 @@ def get_generator(model, cfg, device, **kwargs):
         refinement_step=cfg['generation']['refinement_step'],
         simplify_nfaces=cfg['generation']['simplify_nfaces'],
         preprocessor=preprocessor,
+        rotate=cfg['generation']['rotate'],
+        noise=cfg['generation']['noise'],
+        centralize=cfg['generation']['centralize'],
     )
     return generator
 
