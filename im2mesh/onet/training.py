@@ -2,13 +2,18 @@ import os
 from tqdm import trange
 import torch
 from torch.nn import functional as F
-from torch import distributions as dist
+from torch import distributions as dist, sub
 from im2mesh.common import (
     compute_iou, make_3d_grid
 )
 from im2mesh.utils import visualize as vis
 from im2mesh.training import BaseTrainer
 
+from pytorch3d.transforms import RotateAxisAngle, Rotate, random_rotations, axis_angle_to_matrix
+import numpy as np
+import random
+from geometry import PointLK
+import logging
 
 class Trainer(BaseTrainer):
     ''' Trainer object for the Occupancy Network.
@@ -48,7 +53,7 @@ class Trainer(BaseTrainer):
         loss = self.compute_loss(data)
         loss.backward()
         self.optimizer.step()
-        return loss.item()
+        return loss.item(), dict()
 
     def eval_step(self, data):
         ''' Performs an evaluation step.
@@ -122,8 +127,11 @@ class Trainer(BaseTrainer):
         '''
         device = self.device
 
-        batch_size = data['points'].size(0)
+        # batch_size = data['points'].size(0)
+        batch_size = data['inputs'].size(0)
         inputs = data.get('inputs', torch.empty(batch_size, 0)).to(device)
+
+        # logging.info('inputs.shape {}'.format(inputs.shape))
 
         shape = (32, 32, 32)
         p = make_3d_grid([-0.5] * 3, [0.5] * 3, shape).to(device)
@@ -171,3 +179,379 @@ class Trainer(BaseTrainer):
         loss = loss + loss_i.sum(-1).mean()
 
         return loss
+
+def mat2angle(rotmat):
+    cos_angle_diff = (torch.diagonal(rotmat, dim1=-2, dim2=-1).sum(-1)  - 1) / 2
+    # print("cos_angle_diff", cos_angle_diff)
+    cos_angle_diff = torch.clamp(cos_angle_diff, -1, 1)
+    angles = torch.acos(cos_angle_diff)
+    return angles
+
+def ang_mse_loss(A):
+    I = torch.eye(3).to(A).view(1, 3, 3).expand(A.size(0), 3, 3)
+    return torch.nn.functional.mse_loss(A, I, size_average=True) * 9
+
+def ang_cos_loss(rotmat):
+    diags = torch.diagonal(rotmat, dim1=-2, dim2=-1).sum(-1)
+    return -diags
+    # cos_angle_diff = (torch.diagonal(rotmat, dim1=-2, dim2=-1).sum(-1)  - 1) / 2
+    # return - cos_angle_diff
+
+
+def gen_random_rot(inputs, rotate, device):
+    if rotate == -1:
+        ### use random rotations
+        rotmats = random_rotations(inputs.shape[0], dtype=inputs.dtype, device=device)
+        trot = Rotate(rotmats, device=device)
+        angles = mat2angle(rotmats)
+        angles = angles / np.pi * 180
+
+    else:
+        ### use random-axis-angle rotations
+        axis = (torch.rand(inputs.shape[0], 3, dtype=inputs.dtype) - 0.5)
+        axis = axis / torch.norm(axis, dim=1, keepdim=True)   # B*3
+        angles = torch.rand(inputs.shape[0]) * rotate
+        angles_rad = angles * np.pi / 180
+        axis_angle = axis * angles_rad.unsqueeze(1)
+        rotmats = axis_angle_to_matrix(axis_angle)
+        rotmats = rotmats.to(device=device)
+        trot = Rotate(rotmats, device=device)
+    out = dict(op=trot, mat=rotmats, angle_deg=angles)
+
+    return out
+
+class RotateDual(object):
+    def __init__(self, rotate, device) -> None:
+        super().__init__()
+        self.rotate = rotate
+        self.device = device
+
+    def __call__(self, data):
+        device = self.device
+
+        inputs_2 = data.get('inputs_2', data.get('inputs')).to(device)
+
+        d_rot = gen_random_rot(inputs_2, self.rotate, device)
+        trot = d_rot['op']
+
+        inputs_rot = trot.transform_points(inputs_2)
+        data['inputs_2'] = inputs_rot
+
+        if 'points' in data:
+            points_2 = data.get('points_2', data.get('points')).to(device)
+            points_rot = trot.transform_points(points_2)
+            data['points_2'] = points_rot
+
+        return d_rot
+
+def subsample(pts, n):
+    n_pts_in = pts.shape[1]
+
+    if n <= 0:
+        return pts
+    elif n < n_pts_in:
+        idx_sample = torch.randperm(n_pts_in)[:n]
+        pts = pts[:, idx_sample]
+        return pts
+    else:
+        raise ValueError("n=%d is not less than the size of the point cloud %d"%(n, n_pts_in))
+
+class SubSampleDual(object):
+    def __init__(self, n1, n2_min, n2_max, device) -> None:
+        super().__init__()
+        self.n1 = n1
+        self.n2_min = n2_min
+        self.n2_max = n2_max
+        
+        self.device = device
+     
+    def __call__(self, data):
+        device = self.device
+
+        inputs = data.get('inputs')
+        inputs_2 = data.get('inputs_2', inputs.clone())
+        
+        assert inputs.ndim == 3 and inputs.shape[1] == inputs_2.shape[1], "{}, {}".format(inputs.shape, inputs_2.shape)
+        inputs = subsample(inputs, self.n1)
+        if 'inputs_2' not in data:
+            n2 = random.randint(self.n2_min, self.n2_max)
+            inputs_2 = subsample(inputs_2, n2)
+        else:
+            inputs_2 = subsample(inputs_2, self.n1) # for 7scenes, avoid too few points
+        
+        data['inputs'] = inputs.to(device)
+        data['inputs_2'] = inputs_2.to(device)
+        return
+
+def noise_pts(pts, stddev):
+    noise = stddev * torch.randn(*pts.shape, dtype=pts.dtype, device=pts.device)
+    pts = pts + noise
+    return pts
+
+class NoiseDual(object):
+    def __init__(self, stddev, device) -> None:
+        super().__init__()
+        self.stddev = stddev
+        self.device = device
+
+    def __call__(self, data):
+        device = self.device
+
+        inputs = data.get('inputs').to(device)
+        inputs_2 = data.get('inputs_2', inputs.clone()).to(device)
+
+        inputs = noise_pts(inputs, self.stddev)
+        inputs_2 = noise_pts(inputs_2, self.stddev)
+        
+        data['inputs'] = inputs
+        data['inputs_2'] = inputs_2
+        return
+
+class ShiftDual(object):
+    def __init__(self, shift_max, shift_sep, device) -> None:
+        super().__init__()
+        self.shift_max = shift_max
+        self.device = device
+        self.shift_sep = shift_sep
+
+    def __call__(self, data):
+        device = self.device
+
+        inputs = data.get('inputs').to(device)
+        inputs_2 = data.get('inputs_2', inputs.clone()).to(device)
+
+        shift = self.shift_max * (torch.rand(inputs.shape[0], 1, inputs.shape[2]) - 0.5) * 2
+        shift = shift.to(device)
+        inputs = inputs + shift
+        if self.shift_sep > 0:
+            shift_2 = self.shift_sep * torch.randn(inputs_2.shape[0], 1, inputs_2.shape[2])
+            shift_2 = shift_2.to(device) + shift
+            inputs_2 = inputs_2 + shift_2
+        else:
+            inputs_2 = inputs_2 + shift
+        data['inputs'] = inputs
+        data['inputs_2'] = inputs_2
+
+        if 'points' in data:
+            points = data.get('points').to(device)
+            points_2 = data.get('points_2', points.clone()).to(device)
+            points = points + shift
+            if self.shift_sep:
+                points_2 = points_2 + shift_2
+            else:
+                points_2 = points_2 + shift
+            data['points'] = points
+            data['points_2'] = points_2
+
+        return
+
+def solve_R(f1, f2):
+    """f1 and f2: (b*)m*3
+    f2 * R -> f1
+    """
+    batch_size = f1.shape[0]
+
+    S = torch.matmul(f1.transpose(-1, -2), f2)  #B*3*3
+    try:
+        U, sigma, V = torch.svd(S)
+    except:
+        print("adding noise to avoid divergence in torch.svd")
+        noise = torch.diag_embed(torch.randn(batch_size, 3, device=S.device) * 1e-4)
+        try:
+            U, sigma, V = torch.svd(S + noise)
+        except Exception as e:
+            print(S)
+            print("nan?", torch.any(torch.isnan(S)))
+            raise ValueError(e)
+        # print("S", S)
+        # print("noise", noise)
+        # U, sigma, V = torch.svd(S + 1e-4*S.mean()*torch.eye(S.shape[1], device=S.device).unsqueeze(0))
+        # U, sigma, V = torch.svd(S + 1e-4*S.mean()*torch.rand(S.shape, device=S.device))
+    R = torch.matmul(V, U.transpose(-1, -2))
+    det = torch.det(R)
+    # print(R)
+    diag_1 = torch.tensor([1, 1, 0], device=R.device, dtype=R.dtype)
+    diag_1 = diag_1.unsqueeze(0).expand(batch_size, -1)                 # B*3
+    diag_2 = torch.tensor([0, 0, 1], device=R.device, dtype=R.dtype)
+    diag_2 = diag_2.unsqueeze(0).expand(batch_size, -1)
+    det = det.reshape(-1, 1)
+    
+    det_mat = torch.diag_embed(diag_1 + diag_2 * det) # B*3*3
+
+    R = torch.matmul(V, torch.matmul(det_mat, U.transpose(-1, -2)))
+    # print("det", det)
+    
+    return R
+
+class DualTrainer(Trainer):
+    def __init__(self, rotate=0, noise_std=0, shift_max=0, n1=0, n2_min=0, n2_max=0, angloss_w=1, closs_w=0, lk_mode=False, occloss_w=1, cos_loss=False, cos_mse=False, lk_supp=False, shift_sep=0, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.rotate = rotate
+        self.noise_std = noise_std
+        self.shift_max = shift_max
+        self.angloss_w = angloss_w
+        self.closs_w = closs_w
+        self.lk_mode = lk_mode
+        self.occloss_w = occloss_w
+        self.cos_loss = cos_loss
+        self.cos_mse = cos_mse
+        self.lk_supp = lk_supp
+        self.shift_sep = shift_sep
+
+        self.sub_op = SubSampleDual(n1, n2_min, n2_max, self.device)
+        self.noise_op = NoiseDual(noise_std, self.device)
+        self.shift_op = ShiftDual(shift_max, shift_sep, self.device)
+        self.rotate_op = RotateDual(rotate, self.device)
+
+        if self.lk_mode or self.lk_supp:
+            self.lk = PointLK()
+
+    def compute_loss_single(self, data, idx):
+        
+        device = self.device
+        dont_decode = 'points' not in data
+        if not dont_decode:
+            occ = data.get('points.occ').to(device)
+        if idx == 1:
+            inputs = data.get('inputs').to(device)
+            if not dont_decode:
+                p = data.get('points').to(device)
+        else:
+            assert idx == 2
+            inputs = data.get('inputs_2').to(device)
+            if not dont_decode:
+                p = data.get('points_2').to(device)
+
+        kwargs = {}
+
+        c = self.model.encode_inputs(inputs)
+
+        # q_z = self.model.infer_z(p, occ, c, **kwargs)
+        # z = q_z.rsample()
+        # logging.info("sampled z: {} {}".format(z.shape, z))
+
+        # # KL-divergence
+        # kl = dist.kl_divergence(q_z, self.model.p0_z).sum(dim=-1)
+        # loss = kl.mean()
+        # # print("kl", kl)# 0
+
+        z = None
+
+        if not dont_decode:
+            # General points
+            logits = self.model.decode(p, z, c, **kwargs).logits
+            loss_i = F.binary_cross_entropy_with_logits(
+                logits, occ, reduction='none')
+            loss = loss_i.sum(-1).mean() # + loss
+
+            # print("loss_i", loss_i)
+        else:
+            loss = torch.tensor(0, device=device, dtype=inputs.dtype)
+
+        c = c.reshape(c.shape[0], -1, 3)
+        return loss, c
+
+    def compute_loss(self, data):
+        device = self.device
+        
+        # inputs = data.get('inputs').to(device)
+        # points = data.get('points').to(device)
+        # kwargs = {}
+
+        # input_max = torch.max(torch.abs(inputs))
+        # norm_max = torch.max(torch.norm(inputs, dim=-1))
+        # print("max inf, norm", input_max, norm_max)
+
+        ### subsample -> shift -> noise -> rotate
+        self.sub_op(data)
+        # logging.info("inputs.shape {}, inputs_2.shape {}".format(data['inputs'].shape, data['inputs_2'].shape))
+        self.shift_op(data)
+        self.noise_op(data)
+        d_rot = self.rotate_op(data)
+
+        loss_1, c_1 = self.compute_loss_single(data, 1)
+        loss_2, c_2 = self.compute_loss_single(data, 2)
+        loss = loss_1 + loss_2
+
+        if self.lk_mode:
+            r = self.lk(c_2, c_1) # , huber_delta=0.01
+            R_est = self.lk.g
+        else:
+            R_est = solve_R(c_2, c_1)
+            if self.lk_supp:
+                R_gt_supp = torch.matmul(d_rot['mat'], R_est.detach().transpose(-2, -1))
+                c2_r = torch.matmul(R_est.detach(), c_2.transpose(-2, -1)).transpose(-2, -1)
+                r = self.lk(c2_r, c_1, huber_delta=0.01)
+                R_est_supp = self.lk.g
+                R_supp_res = torch.matmul(R_gt_supp.transpose(-2,-1), R_est_supp)
+                loss_angle_mse_supp = ang_mse_loss(R_supp_res)
+                # R_est_total = torch.matmul(R_est_supp, R_est.detach())
+                # R_res_total = torch.matmul(d_rot['mat'].transpose(-2,-1), R_est_total)
+                # loss_angle_mse_total = ang_mse_loss(R_res_total)
+
+        R_gt = d_rot['mat']
+
+        # loss_angle = mat2angle(torch.matmul(R_est.transpose(-2,-1), R_gt))
+        R_res = torch.matmul(R_gt.transpose(-2,-1), R_est)
+        loss_angle = mat2angle(R_res)
+        loss_angle_mean = loss_angle.mean()
+
+        loss_angle_mse = ang_mse_loss(R_res)
+        loss_cos = ang_cos_loss(R_res)
+        loss_cos_mean = loss_cos.mean()
+        loss_cos_mse = ((loss_cos + 3)**2).mean()
+        if self.angloss_w > 0:
+            if self.occloss_w == 0:
+                # loss = loss_angle_mean * self.angloss_w
+                if self.cos_loss:
+                    if self.cos_mse:
+                        loss = loss_cos_mse * self.angloss_w
+                    else:
+                        loss = loss_cos_mean * self.angloss_w
+                else:
+                    loss = loss_angle_mse * self.angloss_w
+            else:
+                # loss = loss * self.occloss_w + loss_angle_mean * self.angloss_w
+                if self.cos_loss:
+                    if self.cos_mse:
+                        loss = loss * self.occloss_w + loss_cos_mse * self.angloss_w
+                    else:
+                        loss = loss * self.occloss_w + loss_cos_mean * self.angloss_w
+                else:
+                    loss = loss * self.occloss_w + loss_angle_mse * self.angloss_w
+
+            if self.lk_supp:
+                loss = loss + loss_angle_mse_supp * self.angloss_w
+
+        # trot_est = Rotate(R_est)
+        # c_2_op = d_rot['op'].transform_points(c_1)
+
+        # c_2_err = c_2_op - c_2
+        # with torch.no_grad():
+        #     print("c_1", torch.abs(c_1).mean())
+        #     print("c_2", torch.abs(c_2).mean())
+        #     print("c_2_op-c_2", torch.abs(c_2_err).mean())
+
+        # loss_c = torch.abs(c_2_err).sum(-1).mean()
+        # if self.closs_w > 0:
+        #     loss = loss + loss_c * self.closs_w
+
+        d_loss = dict(loss_1=loss_1.item(), loss_2=loss_2.item(), loss_ang=loss_angle_mean.item(), loss_ang_mse=loss_angle_mse.item(), loss_cos=loss_cos_mean.item(), loss_cos_mse=loss_cos_mse.item()) # , loss_c=loss_c.item()
+
+        if self.lk_supp:
+            d_loss['loss_angle_mse_supp'] = loss_angle_mse_supp.item()
+
+        return loss, d_loss
+    
+    def train_step(self, data):
+        ''' Performs a training step.
+
+        Args:
+            data (dict): data dictionary
+        '''
+        self.model.train()
+        self.optimizer.zero_grad()
+        loss, d_loss = self.compute_loss(data)
+        loss.backward()
+        self.optimizer.step()
+        return loss.item(), d_loss

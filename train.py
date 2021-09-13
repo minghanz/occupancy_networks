@@ -9,6 +9,15 @@ import matplotlib; matplotlib.use('Agg')
 from im2mesh import config, data
 from im2mesh.checkpoints import CheckpointIO
 
+import yaml
+
+### https://stackoverflow.com/questions/9321741/printing-to-screen-and-writing-to-a-file-at-the-same-time
+import logging
+import random
+
+class MyDataParallel(torch.nn.DataParallel):
+    def __getattr__(self, name):
+        return getattr(self.module, name)
 
 # Arguments
 parser = argparse.ArgumentParser(
@@ -52,14 +61,43 @@ batch_size_vis = cfg['training']['batch_size_vis']
 if not os.path.exists(out_dir):
     os.makedirs(out_dir)
 
+# Set up the logging format and output path
+level    = logging.INFO
+format   = '%(asctime)s %(message)s'
+datefmt = '%m-%d %H:%M:%S'
+handlers = [logging.FileHandler(os.path.join(out_dir, 'msgs.log')), logging.StreamHandler()]
+
+logging.basicConfig(level = level, format = format, datefmt=datefmt, handlers = handlers, )
+logging.info('Hey, logging is written to {}!'.format(os.path.join(out_dir, 'msgs.log')))
+
+with open(os.path.join(out_dir, 'cfg.yaml'), 'w') as f:
+    yaml.dump(cfg, f)
+    logging.info("cfg saved to {}".format(os.path.join(out_dir, 'cfg.yaml')))
+    logging.info(cfg)
+
 # Dataset
 train_dataset = config.get_dataset('train', cfg)
 val_dataset = config.get_dataset('val', cfg)
 
-train_loader = torch.utils.data.DataLoader(
-    train_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
-    collate_fn=data.collate_remove_none,
-    worker_init_fn=data.worker_init_fn)
+if isinstance(train_dataset, list):
+    # Mix two datasets (compared with ConcatDataset, we want one batch to only include data from one dataset. )
+    duo_loader = True
+    train_loader1 = torch.utils.data.DataLoader(
+        train_dataset[0], batch_size=batch_size, num_workers=num_workers, shuffle=True,
+        collate_fn=data.collate_remove_none,
+        worker_init_fn=data.worker_init_fn)
+    
+    train_loader2 = torch.utils.data.DataLoader(
+        train_dataset[1], batch_size=batch_size, num_workers=num_workers, shuffle=True,
+        collate_fn=data.collate_remove_none,
+        worker_init_fn=data.worker_init_fn)
+    train_loader = [train_loader1, train_loader2]
+else:
+    duo_loader = False
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
+        collate_fn=data.collate_remove_none,
+        worker_init_fn=data.worker_init_fn)
 
 val_loader = torch.utils.data.DataLoader(
     val_dataset, batch_size=batch_size_val, num_workers=num_workers_val, shuffle=False,
@@ -77,9 +115,16 @@ data_vis = next(iter(vis_loader))
 # Model
 model = config.get_model(cfg, device=device, dataset=train_dataset)
 
+if torch.cuda.device_count() > 1:
+  logging.info("Let's use {} GPUs!".format(torch.cuda.device_count()))
+  # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+  model = torch.nn.DataParallel(model)
+
 # Intialize training
 npoints = 1000
-optimizer = optim.Adam(model.parameters(), lr=1e-4)
+lr = cfg['training'].get('lr', 1e-4)
+logging.info("learning rate: {}".format(lr))
+optimizer = optim.Adam(model.parameters(), lr=lr)
 # optimizer = optim.SGD(model.parameters(), lr=1e-4, momentum=0.9)
 trainer = config.get_trainer(model, optimizer, cfg, device=device)
 
@@ -101,7 +146,7 @@ if metric_val_best == np.inf or metric_val_best == -np.inf:
 # TODO: remove this switch
 # metric_val_best = -model_selection_sign * np.inf
 
-print('Current best validation metric (%s): %.8f'
+logging.info('Current best validation metric (%s): %.8f'
       % (model_selection_metric, metric_val_best))
 
 # TODO: reintroduce or remove scheduler?
@@ -115,46 +160,82 @@ checkpoint_every = cfg['training']['checkpoint_every']
 validate_every = cfg['training']['validate_every']
 visualize_every = cfg['training']['visualize_every']
 
-# Print model
+# logging.info model
 nparameters = sum(p.numel() for p in model.parameters())
-print(model)
-print('Total number of parameters: %d' % nparameters)
+logging.info(model)
+logging.info('Total number of parameters: %d' % nparameters)
 
+# Iteration on epochs
 while True:
     epoch_it += 1
 #     scheduler.step()
 
-    for batch in train_loader:
-        it += 1
-        loss = trainer.train_step(batch)
-        logger.add_scalar('train/loss', loss, it)
+    if duo_loader:
+        train_iter1 = iter(train_loader[0])
+        train_iter2 = iter(train_loader[1])
+        train_iter = [train_iter1, train_iter2]
+    else:
+        train_iter = iter(train_loader)
 
-        # Print output
+    # Iteration inside an epoch
+    while True:
+        if duo_loader:
+            loader_idx = random.randint(0, 1)
+            try:
+                batch = next(train_iter[loader_idx])
+            except StopIteration:
+                try:
+                    batch = next(train_iter[1-loader_idx])
+                except StopIteration:
+                    break
+        else:
+            try:
+                batch = next(train_iter)
+            except StopIteration:
+                break
+
+    ### Use iter() and next() instead of a for loop on Dataloader 
+    ### because we may want to mix several dataloader at the same time.
+    # for batch in train_loader:
+
+        # logging.info("data loaded, {}".format(it))
+
+        it += 1
+        loss, d_loss = trainer.train_step(batch)
+        logger.add_scalar('train/loss', loss, it)
+        for key in d_loss:
+            logger.add_scalar('train/{}'.format(key), d_loss[key], it)
+
+        # logging.info output
         if print_every > 0 and (it % print_every) == 0:
-            print('[Epoch %02d] it=%03d, loss=%.4f'
-                  % (epoch_it, it, loss))
+            txt = '[Epoch %02d] it=%03d, loss=%.4f'% (epoch_it, it, loss)
+            for key in d_loss:
+                txt = txt + ", %s: %.5f"%(key, d_loss[key])
+            logging.info(txt)
+            # logging.info('[Epoch %02d] it=%03d, loss=%.4f'
+            #       % (epoch_it, it, loss))
 
         # Visualize output
         if visualize_every > 0 and (it % visualize_every) == 0:
-            print('Visualizing')
+            logging.info('Visualizing')
             trainer.visualize(data_vis)
 
         # Save checkpoint
         if (checkpoint_every > 0 and (it % checkpoint_every) == 0):
-            print('Saving checkpoint')
+            logging.info('Saving checkpoint')
             checkpoint_io.save('model.pt', epoch_it=epoch_it, it=it,
                                loss_val_best=metric_val_best)
 
         # Backup if necessary
         if (backup_every > 0 and (it % backup_every) == 0):
-            print('Backup checkpoint')
+            logging.info('Backup checkpoint')
             checkpoint_io.save('model_%d.pt' % it, epoch_it=epoch_it, it=it,
                                loss_val_best=metric_val_best)
         # Run validation
         if validate_every > 0 and (it % validate_every) == 0:
             eval_dict = trainer.evaluate(val_loader)
             metric_val = eval_dict[model_selection_metric]
-            print('Validation metric (%s): %.4f'
+            logging.info('Validation metric (%s): %.4f'
                   % (model_selection_metric, metric_val))
 
             for k, v in eval_dict.items():
@@ -162,13 +243,13 @@ while True:
 
             if model_selection_sign * (metric_val - metric_val_best) > 0:
                 metric_val_best = metric_val
-                print('New best model (loss %.4f)' % metric_val_best)
+                logging.info('New best model (loss %.4f)' % metric_val_best)
                 checkpoint_io.save('model_best.pt', epoch_it=epoch_it, it=it,
                                    loss_val_best=metric_val_best)
 
         # Exit if necessary
         if exit_after > 0 and (time.time() - t0) >= exit_after:
-            print('Time limit reached. Exiting.')
+            logging.info('Time limit reached. Exiting.')
             checkpoint_io.save('model.pt', epoch_it=epoch_it, it=it,
                                loss_val_best=metric_val_best)
             exit(3)

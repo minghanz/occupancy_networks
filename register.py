@@ -13,36 +13,19 @@ from im2mesh.utils.io import export_pointcloud
 from im2mesh.utils.visualize import visualize_data
 from im2mesh.utils.voxels import VoxelGrid
 
+### https://stackoverflow.com/questions/9321741/printing-to-screen-and-writing-to-a-file-at-the-same-time
+import logging
+
+from geometry import PointLK
+
 import numpy as np
 try:
     from pytorch3d.transforms import RotateAxisAngle, Rotate, random_rotations
 except Exception as e:
     print(e)
     print("pytorch 3d may not be installed. You may not be able to run register.py on this machine. ")
-def solve_R(f1, f2):
-    """f1 and f2: (b*)m*3
-    only work for batch_size=1
-    """
-    S = torch.matmul(f1.transpose(-1, -2), f2)  # 3*3
-    U, sigma, V = torch.svd(S)
-    R = torch.matmul(V, U.transpose(-1, -2))
-    det = torch.det(R)
-    # print(R)
-    diag_1 = torch.tensor([1, 1, 0], device=R.device, dtype=R.dtype)
-    diag_2 = torch.tensor([0, 0, 1], device=R.device, dtype=R.dtype)
-    det_mat = torch.diag(diag_1 + diag_2 * det)
 
-    # det_mat = torch.eye(3, device=R.device, dtype=R.dtype)
-    # det_mat[2, 2] = det
-
-    det_mat = det_mat.unsqueeze(0)
-    # print(det_mat)
-    R = torch.matmul(V, torch.matmul(det_mat, U.transpose(-1, -2)))
-    print(det)
-    # print(V.shape)
-    
-    return R
-    
+from register_util import *
 
 parser = argparse.ArgumentParser(
     description='Extract meshes from occupancy process.'
@@ -59,6 +42,17 @@ out_dir = cfg['training']['out_dir']
 generation_dir = os.path.join(out_dir, cfg['generation']['generation_dir'])
 out_time_file = os.path.join(generation_dir, 'time_generation_full.pkl')
 out_time_file_class = os.path.join(generation_dir, 'time_generation.pkl')
+
+if not os.path.exists(generation_dir):
+    os.makedirs(generation_dir)
+
+level    = logging.INFO
+format   = '%(asctime)s %(message)s'
+datefmt = '%m-%d %H:%M:%S'
+handlers = [logging.FileHandler(os.path.join(generation_dir, 'msgs.log')), logging.StreamHandler()]
+
+logging.basicConfig(level = level, format = format, datefmt=datefmt, handlers = handlers, )
+logging.info('Hey, logging is written to {}!'.format(os.path.join(generation_dir, 'msgs.log')))
 
 batch_size = cfg['generation']['batch_size']
 input_type = cfg['data']['input_type']
@@ -84,12 +78,12 @@ generate_pointcloud = cfg['generation']['generate_pointcloud']
 
 if generate_mesh and not hasattr(generator, 'generate_mesh'):
     generate_mesh = False
-    print('Warning: generator does not support mesh generation.')
+    logging.info('Warning: generator does not support mesh generation.')
 
 if generate_pointcloud and not hasattr(generator, 'generate_pointcloud'):
     generate_pointcloud = False
-    print('Warning: generator does not support pointcloud generation.')
-
+    logging.info('Warning: generator does not support pointcloud generation.')
+record_worst_best = cfg['generation']['record_worst_best']
 
 # Loader
 test_loader = torch.utils.data.DataLoader(
@@ -105,8 +99,8 @@ model.eval()
 model_counter = defaultdict(int)
 
 # accuracy
-print("cfg['data']['pointcloud_n']", cfg['data']['pointcloud_n'])
-print("angle_avg, trans_avg, angle180_avg, lower90, higher90")
+logging.info("cfg['data']['pointcloud_n_val'] {}".format(cfg['data']['pointcloud_n_val']))
+logging.info("angle_avg, trans_avg, angle180_avg, lower90, higher90")
 metric_dict = dict()
 metric_dict['angle_sum'] = 0
 metric_dict['angle180_sum'] = 0
@@ -114,8 +108,55 @@ metric_dict['trans_sum'] = 0
 metric_dict['num'] = 0
 metric_dict['num_90-'] = 0
 metric_dict['num_90+'] = 0
-if not os.path.exists(generation_dir):
-    os.makedirs(generation_dir)
+metric_dict['rmse_sum'] = 0
+metric_dict['rmse_tp'] = 0
+
+metric_dict_lk = metric_dict.copy()
+
+if record_worst_best:
+    worst_dict = dict()
+    worst_n = 10
+    worst_dict['loss'] = [0] * worst_n
+    worst_dict['pcl_1'] = [None]*worst_n
+    worst_dict['pcl_1_rot_est'] = [None]*worst_n
+    worst_dict['pcl_1_rot_gt'] = [None]*worst_n
+    worst_dict['pcl_2'] = [None]*worst_n
+    worst_dict['category_name'] = [None]*worst_n
+
+    worst90_dict = dict()
+    worst90_n = 10
+    worst90_dict['loss'] = [0] * worst90_n
+    worst90_dict['pcl_1'] = [None]*worst90_n
+    worst90_dict['pcl_1_rot_est'] = [None]*worst90_n
+    worst90_dict['pcl_1_rot_gt'] = [None]*worst90_n
+    worst90_dict['pcl_2'] = [None]*worst90_n
+    worst90_dict['category_name'] = [None]*worst90_n
+    worst90_dict['angle_diff'] = [None]*worst90_n
+
+    worst45_dict = dict()
+    worst45_n = 10
+    worst45_dict['loss'] = [0] * worst45_n
+    worst45_dict['pcl_1'] = [None]*worst45_n
+    worst45_dict['pcl_1_rot_est'] = [None]*worst45_n
+    worst45_dict['pcl_1_rot_gt'] = [None]*worst45_n
+    worst45_dict['pcl_2'] = [None]*worst45_n
+    worst45_dict['category_name'] = [None]*worst45_n
+    worst45_dict['angle_diff'] = [None]*worst45_n
+
+    best_dict = dict()
+    best_n = 10
+    best_dict['loss'] = [0] * best_n
+    best_dict['pcl_1'] = [None]*best_n
+    best_dict['pcl_1_rot_est'] = [None]*best_n
+    best_dict['pcl_1_rot_gt'] = [None]*best_n
+    best_dict['pcl_2'] = [None]*best_n
+    best_dict['category_name'] = [None]*best_n
+
+lk_mode = cfg['test'].get('lk_mode', False)
+logging.info("lk_mode {}".format(lk_mode))
+if lk_mode:
+    lk = PointLK()
+
 f_res = open(os.path.join(generation_dir, "results.txt"), "w")
 
 for it, data in enumerate(tqdm(test_loader)):
@@ -189,13 +230,13 @@ for it, data in enumerate(tqdm(test_loader)):
     if register:
         out_1, out_2_rot, rot_d, pts_d = generator.generate_latent_conditioned(data)
         input_1, input_2_rot, input_2 = pts_d['inputs_1'], pts_d['inputs_rot_2'], pts_d['inputs_2']
-        # print("out_1.shape", out_1.shape)    # 1, 513
+        # logging.info("out_1.shape", out_1.shape)    # 1, 513
         batch_size = out_1.shape[0]
         out_1 = out_1.reshape(batch_size, -1, 3)
         out_2_rot = out_2_rot.reshape(batch_size, -1, 3)
 
-        out_1 = out_1.cpu().detach()
-        out_2_rot = out_2_rot.cpu().detach()
+        # out_1 = out_1.cpu().detach()
+        # out_2_rot = out_2_rot.cpu().detach()
 
         out_1_rot = rot_d['trot'].transform_points(out_1)
         diff_gt  = out_1_rot - out_2_rot
@@ -204,71 +245,115 @@ for it, data in enumerate(tqdm(test_loader)):
         ### estimate rotation
         # Rs = solve_R(out_1, out_2_rot)
         Rs = solve_R(out_2_rot, out_1)
-        trot = Rotate(R=Rs)
+        trot = Rotate(R=Rs, device=device)
         out_1_rot_est = trot.transform_points(out_1)
         diff_est = out_1_rot_est - out_2_rot
 
-        input_1_rot_est = trot.transform_points(input_1.cpu())
+        if lk_mode:
+            # r_test = lk(out_1_rot, out_1)
+            # dR_test = lk.g
+            # angle_diff_test = angle_diff_func(dR_test, rot_d['rotmats'])
+            # logging.info("test res {} gt {}".format(angle_diff_test.max().item(), torch.abs(rot_d['angles']).max().item())  )
+
+            r = lk(out_2_rot, out_1_rot_est, huber_delta=0.01)
+            # r = lk(out_1_rot_est, out_2_rot, huber_delta=0.01)
+            dR = lk.g
+            Rs_lk = Rs.matmul(dR)
+            # Rs_lk = dR.matmul(Rs)
+
+            # r = lk(out_2_rot, out_1)
+            # Rs_lk = lk.g
+
+            logging.info("iter {}".format(lk.itr))
+
+            trot_lk = Rotate(R=Rs_lk, device=device)
+            out_1_rot_est_lk = trot_lk.transform_points(out_1)
+            diff_est_lk = out_1_rot_est_lk - out_2_rot
+            # Rs = lk.update(Rs, dg)
+            # logging.info("dR {}".format(dR))
+
+            diff_est_lk_inf = torch.abs(diff_est_lk).max().item()
+            diff_est_lk_l2 = torch.norm(diff_est_lk).item()
+
+        input_1_rot_est = trot.transform_points(input_1)
+
+        input_1_rot_gt = rot_d['trot'].transform_points(input_1)
+
+        diff_pts_rmse = torch.norm(input_1_rot_est - input_1_rot_gt, dim=2).mean()
+
+        logging.info("diff_pts_rmse %.4f"%(diff_pts_rmse.item() ) )
 
         ### estimate translation
         t_est = pts_d['t_2'] - trot.transform_points(pts_d['t_1'])
         input_1_trans_est = input_1_rot_est + t_est
 
-        diff_gt = diff_gt.cpu().detach()
-        diff_ori = diff_ori.cpu().detach()
-        diff_est = diff_est.cpu().detach()
+        # diff_gt = diff_gt.cpu().detach()
+        # diff_ori = diff_ori.cpu().detach()
+        # diff_est = diff_est.cpu().detach()
 
         diff_gt_inf = torch.abs(diff_gt).max().item()
         diff_ori_inf = torch.abs(diff_ori).max().item()
         diff_est_inf = torch.abs(diff_est).max().item()
 
-        diff_gt_l2 = torch.norm(diff_gt).item()
+        diff_gt_l2 = torch.norm(diff_gt).item()     # == torch.sqrt((diff_gt**2).sum())
         diff_ori_l2 = torch.norm(diff_ori).item()
         diff_est_l2 = torch.norm(diff_est).item()
 
         ### previous: gt, ori, est
-        print("feat_diff_Linf (ori, est, gt) %.4f %.4f %.4f"%(diff_ori_inf, diff_est_inf, diff_gt_inf) )
-        print("feat_diff_L2 (ori, est, gt) %.4f %.4f %.4f"%(diff_ori_l2, diff_est_l2, diff_gt_l2) )
+        if lk_mode:
+            logging.info("feat_diff_Linf (ori, est, gt, lk) %.4f %.4f %.4f %.4f"%(diff_ori_inf, diff_est_inf, diff_gt_inf, diff_est_lk_inf) )
+            logging.info("feat_diff_L2 (ori, est, gt, lk) %.4f %.4f %.4f %.4f"%(diff_ori_l2, diff_est_l2, diff_gt_l2, diff_est_lk_l2) )
+        else:
+            logging.info("feat_diff_Linf (ori, est, gt) %.4f %.4f %.4f"%(diff_ori_inf, diff_est_inf, diff_gt_inf) )
+            logging.info("feat_diff_L2 (ori, est, gt) %.4f %.4f %.4f"%(diff_ori_l2, diff_est_l2, diff_gt_l2) )
 
-        R_diff = torch.matmul(torch.inverse(Rs), rot_d['rotmats'])
-        # print("R_diff", R_diff)
-        cos_angle_diff = (torch.diagonal(R_diff, dim1=-2, dim2=-1).sum(-1)  - 1) / 2
-        # print("cos_angle_diff", cos_angle_diff)
-        cos_angle_diff = torch.clamp(cos_angle_diff, -1, 1)
-        angle_diff = torch.acos(cos_angle_diff)
-        angle_diff = angle_diff / np.pi * 180
-        print("angle_diff (res, gt) %.4f %.4f"%(torch.abs(angle_diff).max().item(), torch.abs(rot_d['angles']).max().item() ) )
+        # R_diff = torch.matmul(torch.inverse(Rs), rot_d['rotmats'])
+        # # logging.info("R_diff", R_diff)
+        # cos_angle_diff = (torch.diagonal(R_diff, dim1=-2, dim2=-1).sum(-1)  - 1) / 2
+        # # logging.info("cos_angle_diff", cos_angle_diff)
+        # cos_angle_diff = torch.clamp(cos_angle_diff, -1, 1)
+        # angle_diff = torch.acos(cos_angle_diff)
+        # angle_diff = angle_diff / np.pi * 180
+
+        angle_diff = angle_diff_func(Rs, rot_d['rotmats'])
+        logging.info("angle_diff (res, gt) %.4f %.4f"%(torch.abs(angle_diff).max().item(), torch.abs(rot_d['angles']).max().item() ) )
+
+        if lk_mode:
+            angle_diff_lk = angle_diff_func(Rs_lk, rot_d['rotmats'])
+            logging.info("angle_diff_lk (res, gt) %.4f %.4f"%(torch.abs(angle_diff_lk).max().item(), torch.abs(rot_d['angles']).max().item() ) )
+
 
         t_diff = t_est - pts_d['t']
         t_diff_l2 = torch.norm(t_diff).item()
         t_l2 = torch.norm(pts_d['t']).item()
         t_1 = torch.norm(pts_d['t_1']).item()
         t_2 = torch.norm(pts_d['t_2']).item()
-        print("t_diff (res, gt, t1, t2) %.4f %.4f %.4f %.4f"%(t_diff_l2, t_l2, t_1, t_2) )
+        logging.info("t_diff (res, gt, t1, t2) %.4f %.4f %.4f %.4f"%(t_diff_l2, t_l2, t_1, t_2) )
 
         f_res.write("{:.4f} {:.4f}\n".format(torch.abs(angle_diff).max().item(), t_diff_l2))
+    
+        update_metric_dict(metric_dict, angle_diff, t_diff_l2, diff_pts_rmse, 'svd')
+        if lk_mode:
+            update_metric_dict(metric_dict_lk, angle_diff_lk, t_diff_l2, diff_pts_rmse, 'lk')
+    
+        logging.info(str(category_id))
+        ### update best and worst
+        if record_worst_best:
+            ds_cur = dict()
+            ds_cur['pcl_1'] = input_1.squeeze(0).cpu().numpy()   # N*3
+            ds_cur['pcl_1_rot_est'] = input_1_rot_est.squeeze(0).cpu().numpy()   # N*3
+            ds_cur['pcl_1_rot_gt'] = input_1_rot_gt.squeeze(0).cpu().numpy()   # N*3
+            ds_cur['pcl_2'] = input_2_rot.squeeze(0).cpu().numpy()   # N*3
+            ds_cur['category_name'] = str(category_id)
+            loss_cur = angle_diff.item()
+            update_worst(loss_cur, ds_cur, worst_dict)
+            update_worst(loss_cur, ds_cur, best_dict, True)
 
-        metric_dict['num'] += 1
-        metric_dict['angle_sum'] += torch.abs(angle_diff).max().item()
-        metric_dict['trans_sum'] += t_diff_l2
-        angle_diff_90m = torch.abs(angle_diff).item()
-        angle_diff_90p = 180-torch.abs(angle_diff).item()
-        if angle_diff_90m < angle_diff_90p:
-            metric_dict['angle180_sum'] += angle_diff_90m
-            metric_dict['num_90-'] += 1
-        else:
-            metric_dict['angle180_sum'] += angle_diff_90p
-            metric_dict['num_90+'] += 1        
-        
-        ### metric summary:
-        angle_avg = metric_dict['angle_sum'] / metric_dict['num']
-        angle180_avg = metric_dict['angle180_sum'] / metric_dict['num']
-        trans_avg = metric_dict['trans_sum'] / metric_dict['num']
-        lower90 = metric_dict['num_90-'] / metric_dict['num']
-        higher90 = metric_dict['num_90+'] / metric_dict['num']
-        print("{:.4f} {:.4f} {:.4f} {:.4f} {:.4f}".format(angle_avg, trans_avg, angle180_avg, lower90, higher90))
+            ds_cur['angle_diff'] = loss_cur
+            update_worst(abs(loss_cur-90), ds_cur, worst90_dict, True)
+            update_worst(min(abs(loss_cur-45), abs(loss_cur-135)), ds_cur, worst45_dict, True)
 
-        print("----------------")
+        logging.info("----------------")
 
 
     if generate_mesh:
@@ -369,22 +454,67 @@ for it, data in enumerate(tqdm(test_loader)):
 
     model_counter[category_id] += 1
 
-### metric summary:
-angle_avg = metric_dict['angle_sum'] / metric_dict['num']
-angle180_avg = metric_dict['angle180_sum'] / metric_dict['num']
-trans_avg = metric_dict['trans_sum'] / metric_dict['num']
-lower90 = metric_dict['num_90-'] / metric_dict['num']
-higher90 = metric_dict['num_90+'] / metric_dict['num']
-print("=================================================")
-print("angle_avg: ", angle_avg)
-print("angle180_avg: ", angle180_avg)
-print("trans_avg: ", trans_avg)
-print("lower90: ", lower90)
-print("higher90: ", higher90)
-### final metrics needed:  mean angle diff, mean trans diff, mean angle diff to 180
 f_res.close()
-with open(os.path.join(generation_dir, "metrics.txt"), 'w') as f_met:
-    f_met.write("{:.4f} {:.4f} {:.4f} {:.4f} {:.4f}".format(angle_avg, trans_avg, angle180_avg, lower90, higher90))
+### metric summary:
+summary_metric_dict(metric_dict, os.path.join(generation_dir, "metrics.txt"))
+if lk_mode:
+    summary_metric_dict(metric_dict_lk, os.path.join(generation_dir, "metrics_lk.txt"))
+
+if record_worst_best:
+    vis_dir = os.path.join(generation_dir, 'vis_results')
+    if not os.path.exists(vis_dir):
+        os.makedirs(vis_dir)
+    logging.info("Saving worst cases to {}".format(vis_dir))
+    for i in range(len(worst_dict['loss'])):
+        color_1 = worst_dict['pcl_1_rot_gt'][i].mean(1)
+        color_2 = worst_dict['pcl_2'][i].mean(1)
+        inputs_path_vis = os.path.join(vis_dir, 'worst_%d_pcl_1.jpg' %i)
+        visualize_data(worst_dict['pcl_1'][i], 'pointcloud', inputs_path_vis, info="src {}, {:.3f}".format(worst_dict['category_name'][i], worst_dict['loss'][i]), c1=color_1)
+        inputs_path_vis = os.path.join(vis_dir, 'worst_%d_pcl_2.jpg' %i)
+        visualize_data(worst_dict['pcl_2'][i], 'pointcloud', inputs_path_vis, info="tgt {}, {:.3f}".format(worst_dict['category_name'][i], worst_dict['loss'][i]), c1=color_2)
+        inputs_path_vis = os.path.join(vis_dir, 'worst_%d_pcl_1est_2.jpg' %i)
+        visualize_data(worst_dict['pcl_1_rot_est'][i], 'pointcloud', inputs_path_vis, worst_dict['pcl_2'][i], info="est {}, {:.3f}".format(worst_dict['category_name'][i], worst_dict['loss'][i]), c1=color_1, c2=color_2)
+        inputs_path_vis = os.path.join(vis_dir, 'worst_%d_pcl_1gt_2.jpg' %i)
+        visualize_data(worst_dict['pcl_1_rot_gt'][i], 'pointcloud', inputs_path_vis, worst_dict['pcl_2'][i], info="gt {}, {:.3f}".format(worst_dict['category_name'][i], worst_dict['loss'][i]), c1=color_1, c2=color_2)
+
+    logging.info("Saving best cases to {}".format(vis_dir))
+    for i in range(len(best_dict['loss'])):
+        color_1 = best_dict['pcl_1_rot_gt'][i].mean(1)
+        color_2 = best_dict['pcl_2'][i].mean(1)
+        inputs_path_vis = os.path.join(vis_dir, 'best_%d_pcl_1.jpg' %i)
+        visualize_data(best_dict['pcl_1'][i], 'pointcloud', inputs_path_vis, info="src {}, {:.3f}".format(best_dict['category_name'][i], best_dict['loss'][i]), c1=color_1)
+        inputs_path_vis = os.path.join(vis_dir, 'best_%d_pcl_2.jpg' %i)
+        visualize_data(best_dict['pcl_2'][i], 'pointcloud', inputs_path_vis, info="tgt {}, {:.3f}".format(best_dict['category_name'][i], best_dict['loss'][i]), c1=color_2)
+        inputs_path_vis = os.path.join(vis_dir, 'best_%d_pcl_1est_2.jpg' %i)
+        visualize_data(best_dict['pcl_1_rot_est'][i], 'pointcloud', inputs_path_vis, best_dict['pcl_2'][i], info="est {}, {:.3f}".format(best_dict['category_name'][i], best_dict['loss'][i]), c1=color_1, c2=color_2)
+        inputs_path_vis = os.path.join(vis_dir, 'best_%d_pcl_1gt_2.jpg' %i)
+        visualize_data(best_dict['pcl_1_rot_gt'][i], 'pointcloud', inputs_path_vis, best_dict['pcl_2'][i], info="gt {}, {:.3f}".format(best_dict['category_name'][i], best_dict['loss'][i]), c1=color_1, c2=color_2)
+    
+    logging.info("Saving worst90 cases to {}".format(vis_dir))
+    for i in range(len(worst90_dict['loss'])):
+        color_1 = worst90_dict['pcl_1_rot_gt'][i].mean(1)
+        color_2 = worst90_dict['pcl_2'][i].mean(1)
+        inputs_path_vis = os.path.join(vis_dir, 'worst90_%d_pcl_1.jpg' %i)
+        visualize_data(worst90_dict['pcl_1'][i], 'pointcloud', inputs_path_vis, info="src {}, {:.3f}".format(worst90_dict['category_name'][i], worst90_dict['angle_diff'][i]), c1=color_1)
+        inputs_path_vis = os.path.join(vis_dir, 'worst90_%d_pcl_2.jpg' %i)
+        visualize_data(worst90_dict['pcl_2'][i], 'pointcloud', inputs_path_vis, info="tgt {}, {:.3f}".format(worst90_dict['category_name'][i], worst90_dict['angle_diff'][i]), c1=color_2)
+        inputs_path_vis = os.path.join(vis_dir, 'worst90_%d_pcl_1est_2.jpg' %i)
+        visualize_data(worst90_dict['pcl_1_rot_est'][i], 'pointcloud', inputs_path_vis, worst90_dict['pcl_2'][i], info="est {}, {:.3f}".format(worst90_dict['category_name'][i], worst90_dict['angle_diff'][i]), c1=color_1, c2=color_2)
+        inputs_path_vis = os.path.join(vis_dir, 'worst90_%d_pcl_1gt_2.jpg' %i)
+        visualize_data(worst90_dict['pcl_1_rot_gt'][i], 'pointcloud', inputs_path_vis, worst90_dict['pcl_2'][i], info="gt {}, {:.3f}".format(worst90_dict['category_name'][i], worst90_dict['angle_diff'][i]), c1=color_1, c2=color_2)
+
+    logging.info("Saving worst45 cases to {}".format(vis_dir))
+    for i in range(len(worst45_dict['loss'])):
+        color_1 = worst45_dict['pcl_1_rot_gt'][i].mean(1)
+        color_2 = worst45_dict['pcl_2'][i].mean(1)
+        inputs_path_vis = os.path.join(vis_dir, 'worst45_%d_pcl_1.jpg' %i)
+        visualize_data(worst45_dict['pcl_1'][i], 'pointcloud', inputs_path_vis, info="src {}, {:.3f}".format(worst45_dict['category_name'][i], worst45_dict['angle_diff'][i]), c1=color_1)
+        inputs_path_vis = os.path.join(vis_dir, 'worst45_%d_pcl_2.jpg' %i)
+        visualize_data(worst45_dict['pcl_2'][i], 'pointcloud', inputs_path_vis, info="tgt {}, {:.3f}".format(worst45_dict['category_name'][i], worst45_dict['angle_diff'][i]), c1=color_2)
+        inputs_path_vis = os.path.join(vis_dir, 'worst45_%d_pcl_1est_2.jpg' %i)
+        visualize_data(worst45_dict['pcl_1_rot_est'][i], 'pointcloud', inputs_path_vis, worst45_dict['pcl_2'][i], info="est {}, {:.3f}".format(worst45_dict['category_name'][i], worst45_dict['angle_diff'][i]), c1=color_1, c2=color_2)
+        inputs_path_vis = os.path.join(vis_dir, 'worst45_%d_pcl_1gt_2.jpg' %i)
+        visualize_data(worst45_dict['pcl_1_rot_gt'][i], 'pointcloud', inputs_path_vis, worst45_dict['pcl_2'][i], info="gt {}, {:.3f}".format(worst45_dict['category_name'][i], worst45_dict['angle_diff'][i]), c1=color_1, c2=color_2)
 
 
 # # Create pandas dataframe and save
@@ -396,7 +526,7 @@ with open(os.path.join(generation_dir, "metrics.txt"), 'w') as f_met:
 # time_df_class = time_df.groupby(by=['class name']).mean()
 # time_df_class.to_pickle(out_time_file_class)
 
-# # Print results
+# # logging.info results
 # time_df_class.loc['mean'] = time_df_class.mean()
-# print('Timings [s]:')
-# print(time_df_class)
+# logging.info('Timings [s]:')
+# logging.info(time_df_class)

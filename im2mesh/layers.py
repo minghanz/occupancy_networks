@@ -12,7 +12,8 @@ class VNResnetBlockFC(nn.Module):
         size_h (int): hidden dimension
     '''
 
-    def __init__(self, size_in, size_out=None, size_h=None, share_nonlinearity=False, negative_slope=0, use_batchnorm=False):
+    def __init__(self, size_in, size_out=None, size_h=None, share_nonlinearity=False, negative_slope=0, 
+                    use_batchnorm=False, global_relu=False):
         super().__init__()
         # Attributes
         if size_out is None:
@@ -21,12 +22,14 @@ class VNResnetBlockFC(nn.Module):
         if size_h is None:
             size_h = min(size_in, size_out)
 
+        self.global_relu = global_relu
         self.size_in = size_in
         self.size_h = size_h
         self.size_out = size_out
         # Submodules
-        self.actvn = VNLeakyReLU(self.size_in, share_nonlinearity=share_nonlinearity, negative_slope=negative_slope)
-        self.fc_0_actvn = VNLinearLeakyReLU(self.size_in, self.size_h, dim=4, share_nonlinearity=share_nonlinearity, negative_slope=negative_slope, use_batchnorm=use_batchnorm)
+        self.actvn = VNLeakyReLU(self.size_in, share_nonlinearity=share_nonlinearity, negative_slope=negative_slope, global_relu=global_relu)
+        self.fc_0_actvn = VNLinearLeakyReLU(self.size_in, self.size_h, dim=4, share_nonlinearity=share_nonlinearity, 
+                            negative_slope=negative_slope, use_batchnorm=use_batchnorm, global_relu=global_relu)
         # self.fc_0 = VNLinear(self.size_in, self.size_h)
         self.fc_1 = VNLinear(self.size_h, self.size_out)
 

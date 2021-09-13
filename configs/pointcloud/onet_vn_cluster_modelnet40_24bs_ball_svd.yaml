@@ -1,0 +1,43 @@
+inherit_from: configs/pointcloud/onet_vn.yaml
+data:
+  path: /scratch/hpeng_root/hpeng1/minghanz/for_occnet/ModelNet40_install
+  voxels_file: null
+  # pointcloud_n: 10000
+  pointcloud_n: 1024
+  pointcloud_n_val: 1024
+model:
+  encoder_kwargs:
+    hidden_dim: 1026
+    ball_radius: 0. #0.1
+    pooling: mean
+    init_lrf: true #true
+    lrf_cross: false
+    n_knn: 20
+    global_relu: false
+  c_dim: 1026
+training:
+  dual: false
+  # rotate: 180
+  # noise_std: 0.01
+  # shift_max: 0.2
+  # n1: 1024
+  # n2_min: 500
+  # n2_max: 1200
+  # angloss_w: 0
+  # closs_w: 0
+
+  batch_size: 24
+  num_workers: 10
+  batch_size_val: 10
+  num_workers_val: 5
+  batch_size_vis: 12
+  
+  print_every: 200
+  visualize_every: 30000
+  checkpoint_every: 10000
+  validate_every: 30000
+  backup_every: 50000
+  # out_dir:  out/pointcloud/onet_vn_modelnet40_ball_svd0_mean_nn50_grelu
+  # out_dir:  out/pointcloud/onet_vn_modelnet40_24bs_ball_mean
+  out_dir: /scratch/hpeng_root/hpeng1/minghanz/tmp/occ_net/onet_vn_modelnet40_24bs_knn_lrf
+  # out_dir: /scratch/hpeng_root/hpeng1/minghanz/tmp/occ_net/onet_vn_modelnet40_24bs_ball01_k20_mean_lrf_cross

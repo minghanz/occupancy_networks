@@ -1,0 +1,60 @@
+inherit_from: configs/pointcloud/onet_vn.yaml
+# data:
+#   path: /scratch/hpeng_root/hpeng1/minghanz/for_occnet/ModelNet40_install
+#   voxels_file: null
+#   pointcloud_n: 10000
+#   # pointcloud_n: 1024
+#   pointcloud_n_val: 1024
+data:
+  dataset: 7scene
+  path: /scratch/hpeng_root/hpeng1/minghanz/for_occnet/7scene
+  pointcloud_n: 10000
+  # pointcloud_n: 1024
+  pointcloud_n_val: 1024
+  duo_mode: true
+model:
+  encoder_kwargs:
+    hidden_dim: 1026
+    ball_radius: 0. # 0.
+    pooling: mean
+    init_lrf: false #true
+    lrf_cross: false #true
+    n_knn: 20
+    global_relu: false
+  c_dim: 1026
+training:
+  lr: 1.0e-4
+  dual: true
+  rotate: 180
+  noise_std: 0.01
+  shift_max: 0.2
+  n1: 1024
+  n2_min: 500
+  n2_max: 1200
+  angloss_w: 10 #10 #100
+  closs_w: 0
+  lk_mode: false
+  occloss_w: 0.01 #0.01 #1
+  cos_loss: false  # true
+  cos_mse: false   # true
+  lk_supp: false
+  shift_sep: 0.02 # 0
+
+  batch_size: 10
+  num_workers: 10
+  batch_size_val: 10
+  num_workers_val: 5
+  batch_size_vis: 12
+  
+  print_every: 200 # 200
+  visualize_every: 30000
+  checkpoint_every: 10000
+  validate_every: 30000 #30000
+  backup_every: 25000 #25000 #50000
+  # out_dir:  out/pointcloud/onet_vn_modelnet40_ball_svd0_mean_nn50_grelu
+  # out_dir:  out/pointcloud/onet_vn_modelnet40_24bs_ball_mean
+  # out_dir: /scratch/hpeng_root/hpeng1/minghanz/tmp/occ_net/onet_vn_modelnet40_24bs_ball02_k20_mean_svd100
+  # out_dir: /scratch/hpeng_root/hpeng1/minghanz/tmp/occ_net/onet_vn_modelnet40_24bs_ball_svd10_lr700k
+  # out_dir: /scratch/hpeng_root/hpeng1/minghanz/tmp/occ_net/onet_ball00_lrf_k20_mean_svd100
+  out_dir: /scratch/hpeng_root/hpeng1/minghanz/tmp/occ_net/onet_vn_modelnet40_24bs_knn_svd1_7scene
+  # out_dir: /scratch/hpeng_root/hpeng1/minghanz/tmp/occ_net/onet_vn_modelnet40_24bs_knn_svd10 #_shiftsep

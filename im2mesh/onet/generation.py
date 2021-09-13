@@ -74,10 +74,10 @@ class Generator3D(object):
 
         if self.rotate == -1:
             ### use random rotations
-            rotmats = random_rotations(inputs.shape[0], dtype=inputs.dtype)
-            trot = Rotate(rotmats)
+            rotmats = random_rotations(inputs.shape[0], dtype=inputs.dtype, device=inputs.device)
+            trot = Rotate(rotmats, device=inputs.device)
 
-            cos_angle_diff = (torch.diagonal(rotmats, dim1=-2, dim2=-1).sum(-1)  - 1) / 2
+            cos_angle_diff = (torch.diagonal(rotmats, dim1=-2, dim2=-1, device=inputs.device).sum(-1)  - 1) / 2
             # print("cos_angle_diff", cos_angle_diff)
             cos_angle_diff = torch.clamp(cos_angle_diff, -1, 1)
             angles = torch.acos(cos_angle_diff)
@@ -85,13 +85,13 @@ class Generator3D(object):
 
         else:
             ### use random-axis-angle rotations
-            axis = (torch.rand(inputs.shape[0], 3, dtype=inputs.dtype) - 0.5)
-            axis = axis / torch.norm(axis, dim=1)   # B*3
-            angles = torch.rand(inputs.shape[0]) * self.rotate
+            axis = (torch.rand(inputs.shape[0], 3, dtype=inputs.dtype, device=inputs.device) - 0.5)
+            axis = axis / torch.norm(axis, dim=1, keepdim=True)   # B*3
+            angles = torch.rand(inputs.shape[0], device=inputs.device) * self.rotate
             angles_rad = angles * np.pi / 180
             axis_angle = axis * angles_rad.unsqueeze(1)
             rotmats = axis_angle_to_matrix(axis_angle)
-            trot = Rotate(rotmats)
+            trot = Rotate(rotmats, device=inputs.device)
 
         # ### use z-axis rotations
         # # print(inputs.shape) # 1*300*3
@@ -99,10 +99,10 @@ class Generator3D(object):
         # trot = RotateAxisAngle(angle=angles, axis="Z", degrees=True)
         # rotmats = trot.get_matrix()[:, :3, :3]
 
-        rot_mat_for_t = random_rotations(inputs.shape[0], dtype=inputs.dtype)       # B*3*3
+        rot_mat_for_t = random_rotations(inputs.shape[0], dtype=inputs.dtype, device=inputs.device)       # B*3*3
         t_mag = np.random.random(inputs.shape[0])                                   # B
         t_0 = np.stack([t_mag, np.zeros_like(t_mag), np.zeros_like(t_mag)], axis=1) # B*3
-        t_0 = torch.tensor(t_0, dtype=inputs.dtype).unsqueeze(2)                    # B*3*1
+        t_0 = torch.tensor(t_0, dtype=inputs.dtype, device=inputs.device).unsqueeze(2)                    # B*3*1
         t = torch.matmul(rot_mat_for_t, t_0).transpose(-1, -2)                      # B*1*3
         t = t.to(device)
 
@@ -112,25 +112,28 @@ class Generator3D(object):
         rot_d['rotmats'] = rotmats
         rot_d['t'] = t
 
+        if 'inputs_2' in data:      # possible in 7scenes
+            inputs_2 = data['inputs_2'].to(device)
+        else:
+            inputs_2 = inputs
+
         ### create a rotated copy:
         n_points_in = inputs.shape[1]
         if n_points_in == 1024:
             idx_sample = torch.randperm(n_points_in)[:1024]
-            idx_sample_2 = torch.randperm(n_points_in)[:102]
-            inputs_2 = inputs
+            idx_sample_2 = torch.randperm(n_points_in)[:512]
             inputs = inputs[:, idx_sample]
             inputs_2 = inputs_2[:, idx_sample_2]
         elif n_points_in > 1000:
             idx_sample = torch.randperm(n_points_in)[:1000]
             idx_sample_2 = torch.randperm(n_points_in)[:1000]
-            inputs_2 = inputs
             inputs = inputs[:, idx_sample]
             inputs_2 = inputs_2[:, idx_sample_2]
         else:
-            noise = torch.randn_like(inputs) * self.noise
-            inputs_2 = inputs + noise
+            noise = torch.randn_like(inputs, device=inputs.device) * self.noise
+            inputs_2 = inputs_2 + noise
 
-        inputs_rot = trot.transform_points(inputs_2.cpu())
+        inputs_rot = trot.transform_points(inputs_2)
         inputs_rot = inputs_rot.to(device=inputs.device)
 
         inputs_trans = inputs_rot + t  # B*N*3
@@ -142,15 +145,15 @@ class Generator3D(object):
         inputs_ctrd_2 = inputs_trans - t_2
 
         pts_d = {}
-        pts_d['inputs_1'] = inputs
-        pts_d['inputs_2'] = inputs_2
-        pts_d['inputs_rot_2'] = inputs_rot
-        pts_d['inputs_trans_2'] = inputs_trans
-        pts_d['t_1'] = t_1
-        pts_d['t_2'] = t_2
-        pts_d['t'] = t
-        pts_d['inputs_ctrd_1'] = inputs_ctrd_1
-        pts_d['inputs_ctrd_2'] = inputs_ctrd_2
+        pts_d['inputs_1'] = inputs.to(device)
+        pts_d['inputs_2'] = inputs_2.to(device)
+        pts_d['inputs_rot_2'] = inputs_rot.to(device)
+        pts_d['inputs_trans_2'] = inputs_trans.to(device)
+        pts_d['t_1'] = t_1.to(device)
+        pts_d['t_2'] = t_2.to(device)
+        pts_d['t'] = t.to(device)
+        pts_d['inputs_ctrd_1'] = inputs_ctrd_1.to(device)
+        pts_d['inputs_ctrd_2'] = inputs_ctrd_2.to(device)
 
         # for key in pts_d:
         #     print(key, pts_d[key].shape)

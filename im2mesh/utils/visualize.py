@@ -5,7 +5,7 @@ from torchvision.utils import save_image
 import im2mesh.common as common
 
 
-def visualize_data(data, data_type, out_file):
+def visualize_data(data, data_type, out_file, data2=None, info=None, c1=None, c2=None):
     r''' Visualizes the data with regard to its type.
 
     Args:
@@ -20,7 +20,7 @@ def visualize_data(data, data_type, out_file):
     elif data_type == 'voxels':
         visualize_voxels(data, out_file=out_file)
     elif data_type == 'pointcloud':
-        visualize_pointcloud(data, out_file=out_file)
+        visualize_pointcloud(data, out_file=out_file, points2=data2, info=info, c1=c1, c2=c2)
     elif data_type is None or data_type == 'idx':
         pass
     else:
@@ -54,7 +54,9 @@ def visualize_voxels(voxels, out_file=None, show=False):
 
 
 def visualize_pointcloud(points, normals=None,
-                         out_file=None, show=False):
+                         out_file=None, show=False, 
+                         points2=None, info=None, 
+                         c1=None, c2=None, cm1='viridis', cm2='viridis', s1=5, s2=5):
     r''' Visualizes point cloud data.
 
     Args:
@@ -68,7 +70,17 @@ def visualize_pointcloud(points, normals=None,
     # Create plot
     fig = plt.figure()
     ax = fig.gca(projection=Axes3D.name)
-    ax.scatter(points[:, 2], points[:, 0], points[:, 1])
+    if c1 is not None:
+        cmap1 = plt.get_cmap(cm1)   # viridis, magma
+        ax.scatter(points[:, 2], points[:, 0], points[:, 1], s=s1, c=c1, cmap=cmap1)
+    else:
+        ax.scatter(points[:, 2], points[:, 0], points[:, 1])
+    if points2 is not None:
+        if c2 is not None:
+            cmap2 = plt.get_cmap(cm2)
+            ax.scatter(points2[:, 2], points2[:, 0], points2[:, 1], s=s2, c=c2, cmap=cmap2, marker='^')
+        else:
+            ax.scatter(points2[:, 2], points2[:, 0], points2[:, 1], 'r')
     if normals is not None:
         ax.quiver(
             points[:, 2], points[:, 0], points[:, 1],
@@ -82,6 +94,9 @@ def visualize_pointcloud(points, normals=None,
     ax.set_ylim(-0.5, 0.5)
     ax.set_zlim(-0.5, 0.5)
     ax.view_init(elev=30, azim=45)
+    if info is not None:
+        plt.title("{}".format(info))
+
     if out_file is not None:
         plt.savefig(out_file)
     if show:

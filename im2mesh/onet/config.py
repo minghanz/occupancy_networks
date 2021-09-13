@@ -71,12 +71,38 @@ def get_trainer(model, optimizer, cfg, device, **kwargs):
     vis_dir = os.path.join(out_dir, 'vis')
     input_type = cfg['data']['input_type']
 
-    trainer = training.Trainer(
-        model, optimizer,
-        device=device, input_type=input_type,
-        vis_dir=vis_dir, threshold=threshold,
-        eval_sample=cfg['training']['eval_sample'],
-    )
+    if 'dual' not in cfg['training'] or not cfg['training']['dual']:
+
+        trainer = training.Trainer(
+            model, optimizer,
+            device=device, input_type=input_type,
+            vis_dir=vis_dir, threshold=threshold,
+            eval_sample=cfg['training']['eval_sample'],
+        )
+    else:
+        lk_supp = cfg['training'].get('lk_supp', False)
+        shift_sep = cfg['training'].get('shift_sep', 0)
+        trainer = training.DualTrainer(
+            cfg['training']['rotate'], 
+            cfg['training']['noise_std'], 
+            cfg['training']['shift_max'], 
+            cfg['training']['n1'], 
+            cfg['training']['n2_min'],
+            cfg['training']['n2_max'],
+            cfg['training']['angloss_w'],
+            cfg['training']['closs_w'],
+            cfg['training']['lk_mode'],
+            cfg['training']['occloss_w'],
+            cfg['training']['cos_loss'],
+            cfg['training']['cos_mse'],
+            lk_supp,
+            shift_sep,
+            model=model,
+            optimizer=optimizer,
+            device=device, input_type=input_type,
+            vis_dir=vis_dir, threshold=threshold,
+            eval_sample=cfg['training']['eval_sample'],
+        )
 
     return trainer
 

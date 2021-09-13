@@ -3,7 +3,7 @@ from torchvision import transforms
 from im2mesh import data
 from im2mesh import onet, r2n2, psgn, pix2mesh, dmc
 from im2mesh import preprocess
-
+import torch
 
 method_dict = {
     'onet': onet,
@@ -108,7 +108,7 @@ def get_generator(model, cfg, device):
 
 
 # Datasets
-def get_dataset(mode, cfg, return_idx=False, return_category=False):
+def get_dataset(mode, cfg, return_idx=False, return_category=False, data_key='data'):
     ''' Returns the dataset.
 
     Args:
@@ -117,21 +117,22 @@ def get_dataset(mode, cfg, return_idx=False, return_category=False):
         return_idx (bool): whether to include an ID field
     '''
     method = cfg['method']
-    dataset_type = cfg['data']['dataset']
-    dataset_folder = cfg['data']['path']
-    categories = cfg['data']['classes']
-
-    # Get split
-    splits = {
-        'train': cfg['data']['train_split'],
-        'val': cfg['data']['val_split'],
-        'test': cfg['data']['test_split'],
-    }
-
-    split = splits[mode]
-
+    dataset_type = cfg[data_key]['dataset']
+    dataset_folder = cfg[data_key]['path']
+    
     # Create dataset
     if dataset_type == 'Shapes3D':
+        categories = cfg[data_key]['classes']
+
+        # Get split
+        splits = {
+            'train': cfg[data_key]['train_split'],
+            'val': cfg[data_key]['val_split'],
+            'test': cfg[data_key]['test_split'],
+        }
+
+        split = splits[mode]
+
         # Dataset fields
         # Method specific fields (usually correspond to output)
         fields = method_dict[method].config.get_data_fields(mode, cfg)
@@ -153,24 +154,36 @@ def get_dataset(mode, cfg, return_idx=False, return_category=False):
         )
     elif dataset_type == 'kitti':
         dataset = data.KittiDataset(
-            dataset_folder, img_size=cfg['data']['img_size'],
+            dataset_folder, img_size=cfg[data_key]['img_size'],
             return_idx=return_idx
         )
     elif dataset_type == 'online_products':
         dataset = data.OnlineProductDataset(
-            dataset_folder, img_size=cfg['data']['img_size'],
-            classes=cfg['data']['classes'],
+            dataset_folder, img_size=cfg[data_key]['img_size'],
+            classes=cfg[data_key]['classes'],
             max_number_imgs=cfg['generation']['max_number_imgs'],
             return_idx=return_idx, return_category=return_category
         )
     elif dataset_type == 'images':
         dataset = data.ImageDataset(
-            dataset_folder, img_size=cfg['data']['img_size'],
+            dataset_folder, img_size=cfg[data_key]['img_size'],
             return_idx=return_idx,
         )
+    elif dataset_type == '7scene':
+        if mode in ['train', 'val']:
+            if mode == 'train':
+                dataset, _ = data.get_datasets_7scenes(cfg[data_key], mode)
+            else:
+                _, dataset = data.get_datasets_7scenes(cfg[data_key], mode)
+        else:
+            dataset = data.get_datasets_7scenes(cfg[data_key], mode)
     else:
-        raise ValueError('Invalid dataset "%s"' % cfg['data']['dataset'])
+        raise ValueError('Invalid dataset "%s"' % cfg[data_key]['dataset'])
  
+    if data_key == 'data' and 'data2' in cfg and mode == 'train':
+        dataset2 = get_dataset(mode, cfg, return_idx, return_category, data_key='data2')
+        dataset = [dataset, dataset2]
+
     return dataset
 
 
@@ -209,8 +222,12 @@ def get_inputs_field(mode, cfg):
             with_camera=with_camera, random_view=random_view
         )
     elif input_type == 'pointcloud':
+        if mode == 'train': 
+            pointcloud_n = cfg['data']['pointcloud_n']
+        else:
+            pointcloud_n = cfg['data']['pointcloud_n_val']
         transform = transforms.Compose([
-            data.SubsamplePointcloud(cfg['data']['pointcloud_n']),
+            data.SubsamplePointcloud(pointcloud_n),
             data.PointcloudNoise(cfg['data']['pointcloud_noise'])
         ])
         with_transforms = cfg['data']['with_transforms']
