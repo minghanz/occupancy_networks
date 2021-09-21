@@ -7,6 +7,9 @@ from Cython.Build import cythonize
 from torch.utils.cpp_extension import BuildExtension, CppExtension, CUDAExtension
 import numpy
 
+############# If showing struct declaration confliction error, 
+############# the reason is that the wrong compiler is used. 
+############# run CXX=gcc python setup.py build_ext --inplace
 
 # Get the numpy include directory.
 numpy_include_dir = numpy.get_include()
@@ -88,7 +91,8 @@ dmc_cuda_module = CUDAExtension(
         'im2mesh/dmc/ops/src/occupancy_to_topology_kernel.cu',
         'im2mesh/dmc/ops/src/occupancy_connectivity_kernel.cu',
         'im2mesh/dmc/ops/src/point_triangle_distance_kernel.cu',
-    ]
+    ],
+    extra_compile_args=['-DTHRUST_IGNORE_CUB_VERSION_CHECK'],   # needed for CUDA>=11, otherwise comment this out
 )
 
 # Gather all extension modules
@@ -107,5 +111,6 @@ setup(
     ext_modules=cythonize(ext_modules),
     cmdclass={
         'build_ext': BuildExtension
-    }
+    },
+    include_dirs=[numpy.get_include()]      # needed for pykdtree, triangle_hash_module, simplify_mesh_module to build correctly
 )

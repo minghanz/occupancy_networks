@@ -33,6 +33,8 @@ You can do this via
 python setup.py build_ext --inplace
 ```
 
+It should be using gcc compiler, otherwise errors may occur. In that case, use `CXX=gcc python setup.py build_ext --inplace`. 
+
 To compile the dmc extension, you have to have a cuda enabled device set up.
 If you experience any errors, you can simply comment out the `dmc_*` dependencies in `setup.py`.
 You should then also comment out the `dmc` imports in `im2mesh/config.py`.
