@@ -1,4 +1,5 @@
 """
+Copied from FMR. 
 This file is used to load 3D point cloud for network training
 Creator: Xiaoshui Huang
 Date: 2020-06-19
