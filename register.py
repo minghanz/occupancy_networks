@@ -10,7 +10,7 @@ import pandas as pd
 from im2mesh import config
 from im2mesh.checkpoints import CheckpointIO
 from im2mesh.utils.io import export_pointcloud
-from im2mesh.utils.visualize import visualize_data
+from im2mesh.utils.visualize import visualize_data, visualize_feat_as_vec_field, visualize_pointcloud
 from im2mesh.utils.voxels import VoxelGrid
 
 ### https://stackoverflow.com/questions/9321741/printing-to-screen-and-writing-to-a-file-at-the-same-time
@@ -401,7 +401,16 @@ for it, data in enumerate(tqdm(test_loader)):
             export_pointcloud(inputs, inputs_path, False)
             out_file_dict['in'] = inputs_path
             inputs_path_vis = os.path.join(in_dir, '%s_pclvis.jpg' % modelname)
-            visualize_data(inputs, 'pointcloud', inputs_path_vis)
+
+            # ### visualize a 3-feature as a vector field
+            # input_1_np = input_1.squeeze(0).cpu().numpy()
+            # out_1_np = out_1.squeeze(0).cpu().numpy()
+            # rotmat = rot_d['rotmats'][0]
+            # visualize_feat_as_vec_field(input_1_np, out_1_np, rotmat=rotmat)
+            # input_2_rot_np = input_2_rot.squeeze(0).cpu().numpy()
+            # out_2_np = out_2_rot.squeeze(0).cpu().numpy()
+            # visualize_feat_as_vec_field(input_2_rot_np, out_2_np)
+
             out_file_dict['in_pclvis'] = inputs_path_vis
 
             inputs_path = os.path.join(in_dir, '%s_1_ori.ply' % modelname)

@@ -3,9 +3,13 @@ from matplotlib import pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from torchvision.utils import save_image
 import im2mesh.common as common
+try:
+    import open3d as o3d
+except:
+    print("Warning: failed to import open3d, some function may not be used. ")
 
 
-def visualize_data(data, data_type, out_file, data2=None, info=None, c1=None, c2=None):
+def visualize_data(data, data_type, out_file, data2=None, info=None, c1=None, c2=None, show=False, s1=5, s2=5):
     r''' Visualizes the data with regard to its type.
 
     Args:
@@ -20,7 +24,8 @@ def visualize_data(data, data_type, out_file, data2=None, info=None, c1=None, c2
     elif data_type == 'voxels':
         visualize_voxels(data, out_file=out_file)
     elif data_type == 'pointcloud':
-        visualize_pointcloud(data, out_file=out_file, points2=data2, info=info, c1=c1, c2=c2)
+        visualize_pointcloud(data, out_file=out_file, points2=data2, info=info, c1=c1, c2=c2, show=show, s1=s1, s2=s2)
+        # display_open3d(data)
     elif data_type is None or data_type == 'idx':
         pass
     else:
@@ -52,6 +57,44 @@ def visualize_voxels(voxels, out_file=None, show=False):
         plt.show()
     plt.close(fig)
 
+
+def display_open3d(template, source=None, transformed_source=None):
+    to_vis = []
+    template_ = o3d.geometry.PointCloud()
+    template_.points = o3d.utility.Vector3dVector(template)
+    template_.paint_uniform_color([1, 0, 0])
+    to_vis.append(template_)
+    if source is not None:
+        source_ = o3d.geometry.PointCloud()
+        source_.points = o3d.utility.Vector3dVector(source + np.array([0,0,0]))
+        source_.paint_uniform_color([0, 1, 0])
+        to_vis.append(source_)
+    if transformed_source is not None:
+        transformed_source_ = o3d.geometry.PointCloud()
+        transformed_source_.points = o3d.utility.Vector3dVector(transformed_source)
+        transformed_source_.paint_uniform_color([0, 0, 1])
+        to_vis.append(transformed_source_)
+    o3d.visualization.draw_geometries(to_vis)
+	# o3d.visualization.draw_geometries([template_, source_, transformed_source_])
+
+def hat(v):
+    mat = np.array([[0, -v[2], v[1]], 
+                    [v[2], 0, -v[0]], 
+                    [-v[1], v[0], 0]])
+    return mat
+def visualize_feat_as_vec_field(points, feature, idx=list(range(10)), rotmat=None, 
+                                out_file=None, show=False, size=7):
+    for ii in idx:
+        out_1_feat_samp = feature[ii] # 3-vector
+        mat_1 = hat(out_1_feat_samp)
+        field_1 = points.dot(mat_1.T)
+        visualize_pointcloud(points, field_1, out_file, show, s1=size)
+
+        if rotmat is not None:
+            field_1 = field_1.dot(rotmat)
+            points = points.dot(rotmat)
+            visualize_pointcloud(points, field_1, out_file, show, s1=size)
+    return
 
 def visualize_pointcloud(points, normals=None,
                          out_file=None, show=False, 
@@ -85,7 +128,7 @@ def visualize_pointcloud(points, normals=None,
         ax.quiver(
             points[:, 2], points[:, 0], points[:, 1],
             normals[:, 2], normals[:, 0], normals[:, 1],
-            length=0.1, color='k'
+            length=0.8, color='gray', linewidth=0.8
         )
     ax.set_xlabel('Z')
     ax.set_ylabel('X')
