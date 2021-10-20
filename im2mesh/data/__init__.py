@@ -1,6 +1,6 @@
 
 from im2mesh.data.core import (
-    Shapes3dDataset, collate_remove_none, worker_init_fn, ModelNetDataLoader
+    Shapes3dDataset, collate_remove_none, worker_init_fn#, ModelNetDataLoader
 )
 from im2mesh.data.fields import (
     IndexField, CategoryField, ImagesField, PointsField,
@@ -37,6 +37,6 @@ __all__ = [
     KittiDataset,
     OnlineProductDataset,
     ImageDataset,
-    ModelNetDataLoader, 
+    # ModelNetDataLoader, 
     get_datasets_7scenes
 ]
