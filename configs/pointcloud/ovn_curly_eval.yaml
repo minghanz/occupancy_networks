@@ -1,0 +1,40 @@
+inherit_from: configs/pointcloud/ovn_curly.yaml
+# inherit_from: configs/pointcloud/onet_vn_curly_modelnet40_24bs_ball_svd_dual.yaml
+data:
+  pointcloud_n_val: 1024
+  rotate_test: 180
+  pointcloud_noise: 0.0
+  duo_mode: false
+  resamp_mode: false
+# data:
+#   dataset: 7scene
+#   path: /scratch/hpeng_root/hpeng1/minghanz/for_occnet/7scene
+#   pointcloud_n: 10000
+#   # pointcloud_n: 1024
+#   pointcloud_n_val: 1000
+#   duo_mode: true
+test:
+  # model_file: model_1100000.pt
+  # model_file: model.pt
+  # model_file: model_800000.pt
+  model_file: model_0.pt
+  # model_file: model_best.pt
+  lk_mode: false
+  reg: true
+  reg_benchmark: false
+# model:
+#   encoder_kwargs:
+#     ball_radius: 0 #0.2
+generation:
+  # generation_dir: trained_400k_best_1000pts_xyz
+  # generation_dir: trained_test_on_modelnet40
+  # generation_dir: randomrot_1000k_1k_180_duo_7scene
+  generation_dir: randomrot_0k_1k_180
+  record_worst_best: false
+  generate_mesh: false
+  generate_pointcloud: false
+  copy_input: false
+  
+  centralize: false
+  n1: 1024
+  n2: 1024

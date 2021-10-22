@@ -119,6 +119,13 @@ def get_dataset(mode, cfg, return_idx=False, return_category=False, data_key='da
     method = cfg['method']
     dataset_type = cfg[data_key]['dataset']
     dataset_folder = cfg[data_key]['path']
+
+    if mode == 'test':
+        reg_mode = cfg['test'].get('reg', True)
+    else:
+        reg_mode = cfg['training'].get('dual', False)
+    reg_benchmark_mode = mode == 'test' and cfg['test'].get('reg_benchmark', False)
+    duo_mode = cfg[data_key]['duo_mode']
     
     # Create dataset
     if dataset_type == 'Shapes3D':
@@ -130,7 +137,6 @@ def get_dataset(mode, cfg, return_idx=False, return_category=False, data_key='da
             'val': cfg[data_key]['val_split'],
             'test': cfg[data_key]['test_split'],
         }
-
         split = splits[mode]
 
         # Dataset fields
@@ -138,7 +144,16 @@ def get_dataset(mode, cfg, return_idx=False, return_category=False, data_key='da
         fields = method_dict[method].config.get_data_fields(mode, cfg)
         # Input fields
         inputs_field = get_inputs_field(mode, cfg)
-        if inputs_field is not None:
+        if reg_benchmark_mode:
+            assert isinstance(inputs_field, list)
+            fields['inputs'] = inputs_field[0]
+            fields['inputs_2'] = inputs_field[1]
+            fields['T21'] = inputs_field[2]
+        elif duo_mode:
+            assert isinstance(inputs_field, list)
+            fields['inputs'] = inputs_field[0]
+            fields['T'] = inputs_field[1]
+        elif inputs_field is not None:
             fields['inputs'] = inputs_field
 
         if return_idx:
@@ -184,6 +199,12 @@ def get_dataset(mode, cfg, return_idx=False, return_category=False, data_key='da
         dataset2 = get_dataset(mode, cfg, return_idx, return_category, data_key='data2')
         dataset = [dataset, dataset2]
 
+    if reg_mode:
+        rot_magmax = cfg[data_key]['rotate_test'] if mode == 'test' else cfg[data_key]['rotate']
+        resamp_mode = cfg[data_key]['resamp_mode']
+        pcl_noise = cfg[data_key]['pointcloud_noise']
+        dataset = data.PairedDataset(dataset, rot_magmax, duo_mode, reg_benchmark_mode, resamp_mode, pcl_noise)
+
     return dataset
 
 
@@ -196,6 +217,12 @@ def get_inputs_field(mode, cfg):
     '''
     input_type = cfg['data']['input_type']
     with_transforms = cfg['data']['with_transforms']
+    if mode == 'test':
+        reg_mode = cfg['test'].get('reg', True)
+    else:
+        reg_mode = cfg['training'].get('dual', False)
+    reg_benchmark_mode = mode == 'test' and cfg['test'].get('reg_benchmark', False)
+    duo_mode = cfg['data']['duo_mode']
 
     if input_type is None:
         inputs_field = None
@@ -222,19 +249,41 @@ def get_inputs_field(mode, cfg):
             with_camera=with_camera, random_view=random_view
         )
     elif input_type == 'pointcloud':
-        if mode == 'train': 
-            pointcloud_n = cfg['data']['pointcloud_n']
+        if reg_benchmark_mode:
+            inputs_field_1 = data.PointCloudField(
+                cfg['data']['pointcloud_file_bench_1'], transform=None,
+                with_transforms=False
+            )
+            inputs_field_2 = data.PointCloudField(
+                cfg['data']['pointcloud_file_bench_2'], transform=None,
+                with_transforms=False
+            )
+            T_field_21 = data.RotationField(
+                cfg['data']['T21_file']
+            )
+            inputs_field = [inputs_field_1, inputs_field_2, T_field_21]
         else:
-            pointcloud_n = cfg['data']['pointcloud_n_val']
-        transform = transforms.Compose([
-            data.SubsamplePointcloud(pointcloud_n),
-            data.PointcloudNoise(cfg['data']['pointcloud_noise'])
-        ])
-        with_transforms = cfg['data']['with_transforms']
-        inputs_field = data.PointCloudField(
-            cfg['data']['pointcloud_file'], transform,
-            with_transforms=with_transforms
-        )
+            if mode == 'train': 
+                pointcloud_n = cfg['data']['pointcloud_n']
+            else:
+                pointcloud_n = cfg['data']['pointcloud_n_val']
+            assert reg_mode
+            if reg_mode:
+                transform = data.SubsamplePointcloud(pointcloud_n)
+            else:
+                transform = transforms.Compose([
+                    data.SubsamplePointcloud(pointcloud_n),
+                    data.PointcloudNoise(cfg['data']['pointcloud_noise'])
+                ])
+            with_transforms = cfg['data']['with_transforms']
+            inputs_field = data.PointCloudField(
+                cfg['data']['pointcloud_file'], transform,
+                with_transforms=with_transforms
+            )
+            if duo_mode:
+                T_field = data.TransformationField(cfg['data']['T_file'])
+                inputs_field = [inputs_field, T_field]
+
     elif input_type == 'voxels':
         inputs_field = data.VoxelsField(
             cfg['data']['voxels_file']

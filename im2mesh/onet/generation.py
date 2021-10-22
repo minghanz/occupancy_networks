@@ -12,6 +12,7 @@ import time
 
 from pytorch3d.transforms import RotateAxisAngle, Rotate, random_rotations, axis_angle_to_matrix
 
+from im2mesh.data.transforms import SubSamplePairBatchIP, CentralizePairBatchIP, RotatePairBatchIP
 class Generator3D(object):
     '''  Generator class for Occupancy Networks.
 
@@ -23,165 +24,201 @@ class Generator3D(object):
         threshold (float): threshold value
         refinement_step (int): number of refinement steps
         device (device): pytorch device
-        resolution0 (int): start resolution for MISE
+        resolution_0 (int): start resolution for MISE
         upsampling steps (int): number of upsampling steps
         with_normals (bool): whether normals should be estimated
         padding (float): how much padding should be used for MISE
-        sample (bool): whether z should be sampled
+        use_sampling (bool): whether z should be sampled
         simplify_nfaces (int): number of faces the mesh should be simplified to
         preprocessor (nn.Module): preprocessor for inputs
     '''
 
     def __init__(self, model, points_batch_size=100000,
                  threshold=0.5, refinement_step=0, device=None,
-                 resolution0=16, upsampling_steps=3,
-                 with_normals=False, padding=0.1, sample=False,
+                 resolution_0=16, upsampling_steps=3,
+                 with_normals=False, padding=0.1, use_sampling=False,
                  simplify_nfaces=None,
                  preprocessor=None, 
                  rotate=-1, 
                  noise=0, 
-                 centralize=False):
+                 centralize=False,
+                 n1=0, n2=0, **kwargs,
+                 ):
         self.model = model.to(device)
         self.points_batch_size = points_batch_size
         self.refinement_step = refinement_step
         self.threshold = threshold
         self.device = device
-        self.resolution0 = resolution0
+        self.resolution_0 = resolution_0
         self.upsampling_steps = upsampling_steps
         self.with_normals = with_normals
         self.padding = padding
-        self.sample = sample
+        self.use_sampling = use_sampling
         self.simplify_nfaces = simplify_nfaces
         self.preprocessor = preprocessor
 
-        self.rotate = rotate
-        self.noise = noise      # noise only effective when not sampling different points
+        # self.rotate = rotate
+        # self.noise = noise      # noise only effective when not sampling different points
         self.centralize = centralize
+        self.sub_op = SubSamplePairBatchIP(n1, n2, n2, device)
+        self.rotate_op = RotatePairBatchIP()
+        self.ctr_op = CentralizePairBatchIP()
 
     def generate_latent_conditioned(self, data):
         self.model.eval()
-        device = self.device
-        stats_dict = {}
+        # device = self.device
+        # stats_dict = {}
 
-        # print("data.keys()", data.keys())   # ['points', 'points.occ', 'points_iou', 'points_iou.occ', 'voxels', 'inputs', 'inputs.normals', 'idx']
+        self.sub_op(data)
+        self.rotate_op(data)
+        if self.centralize:
+            self.ctr_op(data)
 
-        inputs = data.get('inputs', torch.empty(1, 0)).to(device)
-        kwargs = {}
-
+        inputs = data['inputs']
+        inputs_2 = data['inputs_2']
+        
         input_max = torch.max(torch.abs(inputs))
         norm_max = torch.max(torch.norm(inputs, dim=-1))
         print("max inf, norm", input_max, norm_max)
-
-        if self.rotate == -1:
-            ### use random rotations
-            rotmats = random_rotations(inputs.shape[0], dtype=inputs.dtype, device=inputs.device)
-            trot = Rotate(rotmats, device=inputs.device)
-
-            cos_angle_diff = (torch.diagonal(rotmats, dim1=-2, dim2=-1, device=inputs.device).sum(-1)  - 1) / 2
-            # print("cos_angle_diff", cos_angle_diff)
-            cos_angle_diff = torch.clamp(cos_angle_diff, -1, 1)
-            angles = torch.acos(cos_angle_diff)
-            angles = angles / np.pi * 180
-
-        else:
-            ### use random-axis-angle rotations
-            axis = (torch.rand(inputs.shape[0], 3, dtype=inputs.dtype, device=inputs.device) - 0.5)
-            axis = axis / torch.norm(axis, dim=1, keepdim=True)   # B*3
-            angles = torch.rand(inputs.shape[0], device=inputs.device) * self.rotate
-            angles_rad = angles * np.pi / 180
-            axis_angle = axis * angles_rad.unsqueeze(1)
-            rotmats = axis_angle_to_matrix(axis_angle)
-            trot = Rotate(rotmats, device=inputs.device)
-
-        # ### use z-axis rotations
-        # # print(inputs.shape) # 1*300*3
-        # angles = torch.rand(inputs.shape[0])*360
-        # trot = RotateAxisAngle(angle=angles, axis="Z", degrees=True)
-        # rotmats = trot.get_matrix()[:, :3, :3]
-
-        rot_mat_for_t = random_rotations(inputs.shape[0], dtype=inputs.dtype, device=inputs.device)       # B*3*3
-        t_mag = np.random.random(inputs.shape[0])                                   # B
-        t_0 = np.stack([t_mag, np.zeros_like(t_mag), np.zeros_like(t_mag)], axis=1) # B*3
-        t_0 = torch.tensor(t_0, dtype=inputs.dtype, device=inputs.device).unsqueeze(2)                    # B*3*1
-        t = torch.matmul(rot_mat_for_t, t_0).transpose(-1, -2)                      # B*1*3
-        t = t.to(device)
-
-        rot_d = {}
-        rot_d['angles'] = angles
-        rot_d['trot'] = trot
-        rot_d['rotmats'] = rotmats
-        rot_d['t'] = t
-
-        if 'inputs_2' in data:      # possible in 7scenes
-            inputs_2 = data['inputs_2'].to(device)
-        else:
-            inputs_2 = inputs
-
-        ### create a rotated copy:
-        n_points_in = inputs.shape[1]
-        if n_points_in == 1024:
-            idx_sample = torch.randperm(n_points_in)[:1024]
-            idx_sample_2 = torch.randperm(n_points_in)[:512]
-            inputs = inputs[:, idx_sample]
-            inputs_2 = inputs_2[:, idx_sample_2]
-        elif n_points_in > 1000:
-            idx_sample = torch.randperm(n_points_in)[:1000]
-            idx_sample_2 = torch.randperm(n_points_in)[:1000]
-            inputs = inputs[:, idx_sample]
-            inputs_2 = inputs_2[:, idx_sample_2]
-        else:
-            noise = torch.randn_like(inputs, device=inputs.device) * self.noise
-            inputs_2 = inputs_2 + noise
-
-        inputs_rot = trot.transform_points(inputs_2)
-        inputs_rot = inputs_rot.to(device=inputs.device)
-
-        inputs_trans = inputs_rot + t  # B*N*3
-
-        t_1 = inputs.mean(dim=1, keepdim=True)    # B*1*3
-        inputs_ctrd_1 = inputs - t_1
-
-        t_2 = inputs_trans.mean(dim=1, keepdim=True)    # B*1*3
-        inputs_ctrd_2 = inputs_trans - t_2
-
-        pts_d = {}
-        pts_d['inputs_1'] = inputs.to(device)
-        pts_d['inputs_2'] = inputs_2.to(device)
-        pts_d['inputs_rot_2'] = inputs_rot.to(device)
-        pts_d['inputs_trans_2'] = inputs_trans.to(device)
-        pts_d['t_1'] = t_1.to(device)
-        pts_d['t_2'] = t_2.to(device)
-        pts_d['t'] = t.to(device)
-        pts_d['inputs_ctrd_1'] = inputs_ctrd_1.to(device)
-        pts_d['inputs_ctrd_2'] = inputs_ctrd_2.to(device)
-
-        # for key in pts_d:
-        #     print(key, pts_d[key].shape)
-
-        # Preprocess if requires
-        if self.preprocessor is not None:
-            t0 = time.time()
-            with torch.no_grad():
-                if self.centralize:
-                    inputs = self.preprocessor(inputs_ctrd_1)
-                    inputs_rot = self.preprocessor(inputs_ctrd_2)
-                else:
-                    inputs = self.preprocessor(inputs)
-                    inputs_rot = self.preprocessor(inputs_rot)
-            stats_dict['time (preprocess)'] = time.time() - t0
+        
+        # rot_d = {}
+        # rot_d['angles'] = data['T21.deg']
+        # # rot_d['trot'] = trot
+        # rot_d['rotmats'] = data['T21']
+        # # rot_d['t'] = t
 
         # Encode inputs
-        t0 = time.time()
+        # t0 = time.time()
         with torch.no_grad():
-            if self.centralize:
-                c = self.model.encode_inputs(inputs_ctrd_1)
-                c_rot = self.model.encode_inputs(inputs_ctrd_2)
-            else:
-                c = self.model.encode_inputs(inputs)
-                c_rot = self.model.encode_inputs(inputs_rot)
+            c = self.model.encode_inputs(inputs)
+            c_rot = self.model.encode_inputs(inputs_2)
 
-        # return c, c_rot, rot_d, inputs, inputs_rot, inputs_2
-        return c, c_rot, rot_d, pts_d
+        return c, c_rot
+
+    # def generate_latent_conditioned_old(self, data):
+    #     self.model.eval()
+    #     device = self.device
+    #     stats_dict = {}
+
+    #     # print("data.keys()", data.keys())   # ['points', 'points.occ', 'points_iou', 'points_iou.occ', 'voxels', 'inputs', 'inputs.normals', 'idx']
+
+    #     inputs = data.get('inputs', torch.empty(1, 0)).to(device)
+    #     kwargs = {}
+
+    #     input_max = torch.max(torch.abs(inputs))
+    #     norm_max = torch.max(torch.norm(inputs, dim=-1))
+    #     print("max inf, norm", input_max, norm_max)
+
+    #     if self.rotate == -1:
+    #         ### use random rotations
+    #         rotmats = random_rotations(inputs.shape[0], dtype=inputs.dtype, device=inputs.device)
+    #         trot = Rotate(rotmats, device=inputs.device)
+
+    #         cos_angle_diff = (torch.diagonal(rotmats, dim1=-2, dim2=-1, device=inputs.device).sum(-1)  - 1) / 2
+    #         # print("cos_angle_diff", cos_angle_diff)
+    #         cos_angle_diff = torch.clamp(cos_angle_diff, -1, 1)
+    #         angles = torch.acos(cos_angle_diff)
+    #         angles = angles / np.pi * 180
+
+    #     else:
+    #         ### use random-axis-angle rotations
+    #         axis = (torch.rand(inputs.shape[0], 3, dtype=inputs.dtype, device=inputs.device) - 0.5)
+    #         axis = axis / torch.norm(axis, dim=1, keepdim=True)   # B*3
+    #         angles = torch.rand(inputs.shape[0], device=inputs.device) * self.rotate
+    #         angles_rad = angles * np.pi / 180
+    #         axis_angle = axis * angles_rad.unsqueeze(1)
+    #         rotmats = axis_angle_to_matrix(axis_angle)
+    #         trot = Rotate(rotmats, device=inputs.device)
+
+    #     # ### use z-axis rotations
+    #     # # print(inputs.shape) # 1*300*3
+    #     # angles = torch.rand(inputs.shape[0])*360
+    #     # trot = RotateAxisAngle(angle=angles, axis="Z", degrees=True)
+    #     # rotmats = trot.get_matrix()[:, :3, :3]
+
+    #     rot_mat_for_t = random_rotations(inputs.shape[0], dtype=inputs.dtype, device=inputs.device)       # B*3*3
+    #     t_mag = np.random.random(inputs.shape[0])                                   # B
+    #     t_0 = np.stack([t_mag, np.zeros_like(t_mag), np.zeros_like(t_mag)], axis=1) # B*3
+    #     t_0 = torch.tensor(t_0, dtype=inputs.dtype, device=inputs.device).unsqueeze(2)                    # B*3*1
+    #     t = torch.matmul(rot_mat_for_t, t_0).transpose(-1, -2)                      # B*1*3
+    #     t = t.to(device)
+
+    #     rot_d = {}
+    #     rot_d['angles'] = angles
+    #     rot_d['trot'] = trot
+    #     rot_d['rotmats'] = rotmats
+    #     rot_d['t'] = t
+
+    #     if 'inputs_2' in data:      # possible in 7scenes
+    #         inputs_2 = data['inputs_2'].to(device)
+    #     else:
+    #         inputs_2 = inputs
+
+    #     ### create a rotated copy:
+    #     n_points_in = inputs.shape[1]
+    #     if n_points_in == 1024:
+    #         idx_sample = torch.randperm(n_points_in)[:1024]
+    #         idx_sample_2 = torch.randperm(n_points_in)[:512]
+    #         inputs = inputs[:, idx_sample]
+    #         inputs_2 = inputs_2[:, idx_sample_2]
+    #     elif n_points_in > 1000:
+    #         idx_sample = torch.randperm(n_points_in)[:1000]
+    #         idx_sample_2 = torch.randperm(n_points_in)[:1000]
+    #         inputs = inputs[:, idx_sample]
+    #         inputs_2 = inputs_2[:, idx_sample_2]
+    #     else:
+    #         noise = torch.randn_like(inputs, device=inputs.device) * self.noise
+    #         inputs_2 = inputs_2 + noise
+
+    #     inputs_rot = trot.transform_points(inputs_2)
+    #     inputs_rot = inputs_rot.to(device=inputs.device)
+
+    #     inputs_trans = inputs_rot + t  # B*N*3
+
+    #     t_1 = inputs.mean(dim=1, keepdim=True)    # B*1*3
+    #     inputs_ctrd_1 = inputs - t_1
+
+    #     t_2 = inputs_trans.mean(dim=1, keepdim=True)    # B*1*3
+    #     inputs_ctrd_2 = inputs_trans - t_2
+
+    #     pts_d = {}
+    #     pts_d['inputs_1'] = inputs.to(device)
+    #     pts_d['inputs_2'] = inputs_2.to(device)
+    #     pts_d['inputs_rot_2'] = inputs_rot.to(device)
+    #     pts_d['inputs_trans_2'] = inputs_trans.to(device)
+    #     pts_d['t_1'] = t_1.to(device)
+    #     pts_d['t_2'] = t_2.to(device)
+    #     pts_d['t'] = t.to(device)
+    #     pts_d['inputs_ctrd_1'] = inputs_ctrd_1.to(device)
+    #     pts_d['inputs_ctrd_2'] = inputs_ctrd_2.to(device)
+
+    #     # for key in pts_d:
+    #     #     print(key, pts_d[key].shape)
+
+    #     # Preprocess if requires
+    #     if self.preprocessor is not None:
+    #         t0 = time.time()
+    #         with torch.no_grad():
+    #             if self.centralize:
+    #                 inputs = self.preprocessor(inputs_ctrd_1)
+    #                 inputs_rot = self.preprocessor(inputs_ctrd_2)
+    #             else:
+    #                 inputs = self.preprocessor(inputs)
+    #                 inputs_rot = self.preprocessor(inputs_rot)
+    #         stats_dict['time (preprocess)'] = time.time() - t0
+
+    #     # Encode inputs
+    #     t0 = time.time()
+    #     with torch.no_grad():
+    #         if self.centralize:
+    #             c = self.model.encode_inputs(inputs_ctrd_1)
+    #             c_rot = self.model.encode_inputs(inputs_ctrd_2)
+    #         else:
+    #             c = self.model.encode_inputs(inputs)
+    #             c_rot = self.model.encode_inputs(inputs_rot)
+
+    #     # return c, c_rot, rot_d, inputs, inputs_rot, inputs_2
+    #     return c, c_rot, rot_d, pts_d
 
     def generate_mesh(self, data, return_stats=True):
         ''' Generates the output mesh.
@@ -210,7 +247,7 @@ class Generator3D(object):
             c = self.model.encode_inputs(inputs)
         stats_dict['time (encode inputs)'] = time.time() - t0
 
-        z = self.model.get_z_from_prior((1,), sample=self.sample).to(device)
+        z = self.model.get_z_from_prior((1,), sample=self.use_sampling).to(device)
         mesh = self.generate_from_latent(z, c, stats_dict=stats_dict, **kwargs)
 
         if return_stats:
@@ -234,7 +271,7 @@ class Generator3D(object):
 
         # Shortcut
         if self.upsampling_steps == 0:
-            nx = self.resolution0
+            nx = self.resolution_0
             pointsf = box_size * make_3d_grid(
                 (-0.5,)*3, (0.5,)*3, (nx,)*3
             )
@@ -242,7 +279,7 @@ class Generator3D(object):
             value_grid = values.reshape(nx, nx, nx)
         else:
             mesh_extractor = MISE(
-                self.resolution0, self.upsampling_steps, threshold)
+                self.resolution_0, self.upsampling_steps, threshold)
 
             points = mesh_extractor.query()
 

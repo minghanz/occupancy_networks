@@ -218,6 +218,41 @@ class VoxelsField(Field):
         complete = (self.file_name in files)
         return complete
 
+class TransformationField(Field):
+    '''It provides the field used for a rigid body transformation. 
+    When benchmarking registration performance, 
+    it is useful to have fixed initial transformations instead of random ones.
+    '''
+    def __init__(self, file_name) -> None:
+        super().__init__()
+        self.file_name = file_name
+
+    def load(self, model_path, idx, category):
+        
+        file_path = os.path.join(model_path, self.file_name)
+        T = np.load(file_path)
+        return T
+
+class RotationField(Field):
+    '''It provides the field used for a rotation transformation. 
+    When benchmarking registration performance, 
+    it is useful to have fixed initial transformations instead of random ones.
+    '''
+    def __init__(self, file_name) -> None:
+        super().__init__()
+        self.file_name = file_name
+
+    def load(self, model_path, idx, category):
+        
+        file_path = os.path.join(model_path, self.file_name)
+        data = np.load(file_path)
+        assert 'T' in data and 'deg' in data, data
+        data_out = {
+            None: data['T'], 
+            'deg': data['deg'],
+        }
+
+        return data_out
 
 class PointCloudField(Field):
     ''' Point cloud field.

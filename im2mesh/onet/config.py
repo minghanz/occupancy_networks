@@ -80,28 +80,35 @@ def get_trainer(model, optimizer, cfg, device, **kwargs):
             eval_sample=cfg['training']['eval_sample'],
         )
     else:
-        lk_supp = cfg['training'].get('lk_supp', False)
-        shift_sep = cfg['training'].get('shift_sep', 0)
+        # lk_supp = cfg['training'].get('lk_supp', False)
+        # shift_sep = cfg['training'].get('shift_sep', 0)
+        # trainer = training.DualTrainer(
+        #     cfg['training']['rotate'], 
+        #     cfg['training']['noise_std'], 
+        #     cfg['training']['shift_max'], 
+        #     cfg['training']['n1'], 
+        #     cfg['training']['n2_min'],
+        #     cfg['training']['n2_max'],
+        #     cfg['training']['angloss_w'],
+        #     cfg['training']['closs_w'],
+        #     cfg['training']['lk_mode'],
+        #     cfg['training']['occloss_w'],
+        #     cfg['training']['cos_loss'],
+        #     cfg['training']['cos_mse'],
+        #     lk_supp,
+        #     shift_sep,
+        #     model=model,
+        #     optimizer=optimizer,
+        #     device=device, input_type=input_type,
+        #     vis_dir=vis_dir, threshold=threshold,
+        #     eval_sample=cfg['training']['eval_sample'],
+        # )
         trainer = training.DualTrainer(
-            cfg['training']['rotate'], 
-            cfg['training']['noise_std'], 
-            cfg['training']['shift_max'], 
-            cfg['training']['n1'], 
-            cfg['training']['n2_min'],
-            cfg['training']['n2_max'],
-            cfg['training']['angloss_w'],
-            cfg['training']['closs_w'],
-            cfg['training']['lk_mode'],
-            cfg['training']['occloss_w'],
-            cfg['training']['cos_loss'],
-            cfg['training']['cos_mse'],
-            lk_supp,
-            shift_sep,
             model=model,
             optimizer=optimizer,
             device=device, input_type=input_type,
             vis_dir=vis_dir, threshold=threshold,
-            eval_sample=cfg['training']['eval_sample'],
+            **cfg['training']
         )
 
     return trainer
@@ -117,19 +124,26 @@ def get_generator(model, cfg, device, **kwargs):
     '''
     preprocessor = config.get_preprocessor(cfg, device=device)
 
+    # generator = generation.Generator3D(
+    #     model,
+    #     device=device,
+    #     threshold=cfg['test']['threshold'],
+    #     resolution0=cfg['generation']['resolution_0'],
+    #     upsampling_steps=cfg['generation']['upsampling_steps'],
+    #     sample=cfg['generation']['use_sampling'],
+    #     refinement_step=cfg['generation']['refinement_step'],
+    #     simplify_nfaces=cfg['generation']['simplify_nfaces'],
+    #     preprocessor=preprocessor,
+    #     rotate=cfg['generation']['rotate'],
+    #     noise=cfg['generation']['noise'],
+    #     centralize=cfg['generation']['centralize'],
+    # )
     generator = generation.Generator3D(
         model,
         device=device,
         threshold=cfg['test']['threshold'],
-        resolution0=cfg['generation']['resolution_0'],
-        upsampling_steps=cfg['generation']['upsampling_steps'],
-        sample=cfg['generation']['use_sampling'],
-        refinement_step=cfg['generation']['refinement_step'],
-        simplify_nfaces=cfg['generation']['simplify_nfaces'],
         preprocessor=preprocessor,
-        rotate=cfg['generation']['rotate'],
-        noise=cfg['generation']['noise'],
-        centralize=cfg['generation']['centralize'],
+        **cfg['generation']
     )
     return generator
 
@@ -151,7 +165,7 @@ def get_prior_z(cfg, device, **kwargs):
 
 
 def get_data_fields(mode, cfg):
-    ''' Returns the data fields.
+    ''' Returns the data fields: 'points', (may exist for val/test) 'points_iou', 'voxels'
 
     Args:
         mode (str): the mode which is used
