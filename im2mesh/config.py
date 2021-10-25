@@ -126,6 +126,8 @@ def get_dataset(mode, cfg, return_idx=False, return_category=False, data_key='da
         reg_mode = cfg['training'].get('dual', False)
     reg_benchmark_mode = mode == 'test' and cfg['test'].get('reg_benchmark', False)
     duo_mode = cfg[data_key]['duo_mode']
+
+    bench_input_folder = cfg[data_key].get('path_bench', None) if reg_benchmark_mode else None
     
     # Create dataset
     if dataset_type == 'Shapes3D':
@@ -166,6 +168,7 @@ def get_dataset(mode, cfg, return_idx=False, return_category=False, data_key='da
             dataset_folder, fields,
             split=split,
             categories=categories,
+            bench_input_folder=bench_input_folder,
         )
     elif dataset_type == 'kitti':
         dataset = data.KittiDataset(

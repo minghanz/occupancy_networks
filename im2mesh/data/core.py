@@ -42,8 +42,10 @@ class PairedDataset(Dataset):
     For training: 
     Max number resampling is per instance. 
     Gaussian noise is per instance.
-    Rigid body transformation is per pair. 
-    Resampling for randomness in number of points is per batch. 
+    Generation of rigid body transformation is per pair. 
+    Resampling for randomness in number of points is per batch. (so that we can have randomness in number of points but consistent in a batch)
+    Application of rigid body transformation is per batch. (so that the operation of transformation is on the same device as registration)
+    Optional centering is per batch. 
 
     For testing:
     No resampling or Gaussian noise. 
@@ -116,7 +118,7 @@ class PairedDataset(Dataset):
         data = self.dataset[idx]
         totensor_inplace(data)
         if self.reg_benchmark_mode:
-            assert 'inputs_2' in data and 'T21' in data
+            assert 'inputs_2' in data and 'T21' in data, "{}".format(list(data.keys()))
         elif self.duo_mode:
             self.duo_load(idx, data)
             self.duo_preprocess(data)
@@ -161,7 +163,7 @@ class Shapes3dDataset(Dataset):
     '''
 
     def __init__(self, dataset_folder, fields, split=None,
-                 categories=None, no_except=True, transform=None):
+                 categories=None, no_except=True, transform=None, bench_input_folder=None):
         ''' Initialization of the the 3D shape dataset.
 
         Args:
@@ -177,6 +179,8 @@ class Shapes3dDataset(Dataset):
         self.fields = fields
         self.no_except = no_except
         self.transform = transform
+
+        self.bench_input_folder = bench_input_folder if bench_input_folder is not None else dataset_folder    # the bench input root may be different
 
         # If categories is None, use all subfolders
         if categories is None:
@@ -227,15 +231,18 @@ class Shapes3dDataset(Dataset):
             model = self.models[idx]['model']
             c_idx = self.metadata[category]['idx']
        
-        model_path = os.path.join(self.dataset_folder, category, model)
+        dataset_folder = self.bench_input_folder if 'inputs' in field_name or 'T21' in field_name else self.dataset_folder
+
+        model_path = os.path.join(dataset_folder, category, model)
         try:
             field_data = field.load(model_path, idx, c_idx)
-        except Exception:
+        except Exception as e:
             if self.no_except:
                 logger.warn(
                     'Error occured when loading field %s of model %s'
                     % (field_name, model)
                 )
+                logger.warn(e)
                 return None
             else:
                 raise

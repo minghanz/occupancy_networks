@@ -271,17 +271,7 @@ class PointCloudField(Field):
         self.transform = transform
         self.with_transforms = with_transforms
 
-    def load(self, model_path, idx, category):
-        ''' Loads the data point.
-
-        Args:
-            model_path (str): path to model
-            idx (int): ID of data point
-            category (int): index of category
-        '''
-        file_path = os.path.join(model_path, self.file_name)
-
-        pointcloud_dict = np.load(file_path)
+    def load_dict(self, pointcloud_dict):
 
         points = pointcloud_dict['points'].astype(np.float32)
         normals = pointcloud_dict['normals'].astype(np.float32)
@@ -298,6 +288,35 @@ class PointCloudField(Field):
 
         if self.transform is not None:
             data = self.transform(data)
+
+        return data
+
+    def load_array(self, pointcloud_array):
+        data = {None: pointcloud_array}
+
+        if self.transform is not None:
+            data = self.transform(data)
+
+        return data
+
+    def load(self, model_path, idx, category):
+        ''' Loads the data point.
+
+        Args:
+            model_path (str): path to model
+            idx (int): ID of data point
+            category (int): index of category
+        '''
+        file_path = os.path.join(model_path, self.file_name)
+
+        pointcloud_dict = np.load(file_path)
+
+        if isinstance(pointcloud_dict, np.lib.npyio.NpzFile):
+            data = self.load_dict(pointcloud_dict)
+        elif isinstance(pointcloud_dict, np.ndarray):
+            data = self.load_array(pointcloud_dict)
+        else:
+            raise ValueError('pointcloud file content {} unexpected: {}'.format(type(pointcloud_dict), file_path))
 
         return data
 

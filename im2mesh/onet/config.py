@@ -143,6 +143,7 @@ def get_generator(model, cfg, device, **kwargs):
         device=device,
         threshold=cfg['test']['threshold'],
         preprocessor=preprocessor,
+        reg_benchmark=cfg['test'].get('reg_benchmark', False),
         **cfg['generation']
     )
     return generator

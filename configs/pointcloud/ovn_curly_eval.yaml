@@ -6,6 +6,10 @@ data:
   pointcloud_noise: 0.0
   duo_mode: false
   resamp_mode: false
+  pointcloud_file_bench_1: test_1024_1024_01_nctrd_nresamp_pcl_1.npy
+  pointcloud_file_bench_2: test_1024_1024_01_nctrd_nresamp_pcl_2.npy
+  T21_file: test_1024_1024_01_nctrd_nresamp_R21.npz
+  path_bench: /media/minghanz/DATA/tmp/occ_net/onet_ball00_k20_mean_svd10_ctr/data_benchmark
 # data:
 #   dataset: 7scene
 #   path: /scratch/hpeng_root/hpeng1/minghanz/for_occnet/7scene
@@ -21,7 +25,7 @@ test:
   # model_file: model_best.pt
   lk_mode: false
   reg: true
-  reg_benchmark: false
+  reg_benchmark: true
 # model:
 #   encoder_kwargs:
 #     ball_radius: 0 #0.2
@@ -29,7 +33,7 @@ generation:
   # generation_dir: trained_400k_best_1000pts_xyz
   # generation_dir: trained_test_on_modelnet40
   # generation_dir: randomrot_1000k_1k_180_duo_7scene
-  generation_dir: randomrot_0k_1k_180
+  generation_dir: randomrot_0k_1k_180_bench_2
   record_worst_best: false
   generate_mesh: false
   generate_pointcloud: false

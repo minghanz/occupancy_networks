@@ -42,7 +42,7 @@ class Generator3D(object):
                  rotate=-1, 
                  noise=0, 
                  centralize=False,
-                 n1=0, n2=0, **kwargs,
+                 n1=0, n2=0, reg_benchmark=False, **kwargs,
                  ):
         self.model = model.to(device)
         self.points_batch_size = points_batch_size
@@ -57,6 +57,8 @@ class Generator3D(object):
         self.simplify_nfaces = simplify_nfaces
         self.preprocessor = preprocessor
 
+        self.reg_benchmark_mode = reg_benchmark
+
         # self.rotate = rotate
         # self.noise = noise      # noise only effective when not sampling different points
         self.centralize = centralize
@@ -69,10 +71,11 @@ class Generator3D(object):
         # device = self.device
         # stats_dict = {}
 
-        self.sub_op(data)
-        self.rotate_op(data)
-        if self.centralize:
-            self.ctr_op(data)
+        if not self.reg_benchmark_mode:
+            self.sub_op(data)
+            self.rotate_op(data)
+            if self.centralize:
+                self.ctr_op(data)
 
         inputs = data['inputs']
         inputs_2 = data['inputs_2']
