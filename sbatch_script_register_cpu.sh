@@ -43,4 +43,5 @@ echo ipnip=$ipnip
 
 
 # python -u register.py 'configs/pointcloud/centralize/onet_vn_pretrained_cluster_modelnet40_24bs_180.yaml' --no-cuda
-python -u register.py 'configs/pointcloud/density/onet_vn_pretrained_cluster_modelnet40_24bs_90.yaml' #--no-cuda
+# python -u register.py 'configs/pointcloud/density/onet_vn_pretrained_cluster_modelnet40_24bs_90.yaml' #--no-cuda
+python -u register_new.py 'configs/pointcloud/ovn_cluster_eval.yaml' #--no-cuda

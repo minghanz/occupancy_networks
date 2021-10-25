@@ -1,0 +1,24 @@
+inherit_from: configs/pointcloud/ovn_cluster.yaml
+data:
+  pointcloud_n_val: 1024
+  rotate_test: 180
+  pointcloud_noise: 0.01
+  duo_mode: false
+  resamp_mode: false
+# data:
+#   dataset: 7scene
+#   path: /scratch/hpeng_root/hpeng1/minghanz/for_occnet/7scene
+#   pointcloud_n: 10000
+#   # pointcloud_n: 1024
+#   pointcloud_n_val: 1000
+#   duo_mode: true
+training:
+  out_dir: /scratch/hpeng_root/hpeng1/minghanz/for_occnet
+test:
+  reg: true
+  reg_benchmark: false
+generation:
+  generation_dir: ModelNet40_benchmark
+  centralize: false
+  n1: 1024
+  n2: 1024
