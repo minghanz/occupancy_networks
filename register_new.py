@@ -102,6 +102,8 @@ if __name__ == "__main__":
         generate_pointcloud = False
         logging.info('Warning: generator does not support pointcloud generation.')
     record_worst_best = cfg['generation']['record_worst_best']
+    
+    output_regis_result = cfg['generation'].get('output_regis_result', False)
 
     # Loader
     test_loader = torch.utils.data.DataLoader(
@@ -191,6 +193,7 @@ if __name__ == "__main__":
         pointcloud_dir = os.path.join(generation_dir, 'pointcloud')
         in_dir = os.path.join(generation_dir, 'input')
         generation_vis_dir = os.path.join(generation_dir, 'vis', )
+        output_regis_dir = os.path.join(generation_dir, 'regis_result')
 
         # Get index etc.
         idx = data['idx'].item()
@@ -218,6 +221,7 @@ if __name__ == "__main__":
                 folder_name = str(folder_name) + '_' + category_name.split(',')[0]
 
             generation_vis_dir = os.path.join(generation_vis_dir, folder_name)
+            output_regis_dir = os.path.join(output_regis_dir, folder_name, modelname)   # keep the same structure as the input data folder
 
         # Create directories if necessary
         if vis_n_outputs >= 0 and not os.path.exists(generation_vis_dir):
@@ -231,6 +235,9 @@ if __name__ == "__main__":
 
         if not os.path.exists(in_dir):
             os.makedirs(in_dir)
+
+        if output_regis_result and not os.path.exists(output_regis_dir):
+            os.makedirs(output_regis_dir)
         
         # Timing dict
         time_dict = {
@@ -274,12 +281,12 @@ if __name__ == "__main__":
             diff_est = out_1_rot_est - out_2_rot
 
             input_1_rot = apply_rot(R_gt, input_1)
-            input_1_rot_64 = apply_rot(R_gt.to(torch.float64), input_1.to(torch.float64)).to(torch.float32)
-            # input_1_rot_cpu = apply_rot(R_gt, input_1)
-            input_1_rot_cpu = apply_rot(R_gt.cpu(), input_1.cpu())
-            input_1_rot_cpu_64 = apply_rot(R_gt.cpu().to(torch.float64), input_1.cpu().to(torch.float64)).to(torch.float32)
 
-            input_1_rot_np = np.matmul(R_gt.detach().cpu().numpy()[0], input_1.detach().cpu().numpy()[0].swapaxes(-1, -2))[None, ...].swapaxes(-1, -2)
+            # input_1_rot_64 = apply_rot(R_gt.to(torch.float64), input_1.to(torch.float64)).to(torch.float32)
+            # input_1_rot_cpu = apply_rot(R_gt.cpu(), input_1.cpu())
+            # input_1_rot_cpu_64 = apply_rot(R_gt.cpu().to(torch.float64), input_1.cpu().to(torch.float64)).to(torch.float32)
+            # input_1_rot_np = np.matmul(R_gt.detach().cpu().numpy()[0], input_1.detach().cpu().numpy()[0].swapaxes(-1, -2))[None, ...].swapaxes(-1, -2)
+
             input_1_rot_est = apply_rot(R_est, input_1)
             input_2 = apply_rot(torch.inverse(R_gt), input_2_rot)
             
@@ -298,9 +305,6 @@ if __name__ == "__main__":
             diff_pts_rmse_est = torch.norm(input_1_rot_est - input_1_rot, dim=2).mean()
             diff_pts_rmse = torch.norm(input_2_rot - input_1_rot, dim=2).mean()
             # logging.info(input_2_rot - input_1_rot)
-            # diff_pts_rmse = diff_pts_rmse_1
-            diff_pts_rmse1 = torch.norm(input_1_rot_cpu, dim=2).mean()
-            diff_pts_rmse2 = torch.norm(input_2_rot, dim=2).mean()
             logging.info("diff_pts_rmse %.4f %.4f "%(diff_pts_rmse, diff_pts_rmse_est ) )
             # logging.info("out data['T21'].dtype {} shape {} device {}".format(data['T21'].dtype, data['T21'].shape, data['T21'].device))
             # logging.info("out data['inputs'].dtype {} shape {} device {}".format(data['inputs'].dtype, data['inputs'].shape, data['inputs'].device))
@@ -387,6 +391,26 @@ if __name__ == "__main__":
                 pointcloud_dir, '%s.ply' % modelname)
             export_pointcloud(pointcloud, pointcloud_out_file)
             out_file_dict['pointcloud'] = pointcloud_out_file
+
+        if output_regis_result:
+            ### save point cloud pairs after registration and estimated rotation to file
+            pcl_1_fname = cfg['data']['pointcloud_file_bench_1']
+            pcl_1_fname = os.path.basename(pcl_1_fname)
+            pcl_1_fname, ext = os.path.splitext(pcl_1_fname)
+            pcl_1_fname = pcl_1_fname + '_est' + ext
+            input_1_rot_np = input_1_rot[0].cpu().numpy()
+            assert input_1_rot_np.ndim == 2, input_1_rot_np.shape
+            np.save(os.path.join(output_regis_dir, pcl_1_fname), input_1_rot_np)
+
+            T21_fname = cfg['data']['T21_file']
+            T21_fname = os.path.basename(T21_fname)
+            T21_fname, ext = os.path.splitext(T21_fname)
+            T21_fname = T21_fname + '_est' + ext
+            T21_est = R_est[0].cpu().numpy()
+            angle_est = angle_of_R(R_est).cpu().numpy()
+            assert angle_est.ndim == 1, angle_est.shape
+            np.savez(os.path.join(output_regis_dir, T21_fname), T=T21_est, deg=angle_est)
+
 
         if cfg['generation']['copy_input']:
             # Save inputs

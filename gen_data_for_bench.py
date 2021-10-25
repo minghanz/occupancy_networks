@@ -148,10 +148,11 @@ if __name__ == "__main__":
 
         ctr_text = 'ctrd' if centralize else 'nctrd'
         resamp_text = 'resamp' if resamp else 'nresamp'
+        noise_text = '0' if noise == 0 else str(noise).split('.')[1]
 
-        T21_path = os.path.join(generation_dir_model, 'test_%d_%d_%s_%s_%s_R21.npz'%(n1, n2, str(noise).split('.')[1], ctr_text, resamp_text))
-        pcl1_path = os.path.join(generation_dir_model, 'test_%d_%d_%s_%s_%s_pcl_1.npy'%(n1, n2, str(noise).split('.')[1], ctr_text, resamp_text))
-        pcl2_path = os.path.join(generation_dir_model, 'test_%d_%d_%s_%s_%s_pcl_2.npy'%(n1, n2, str(noise).split('.')[1], ctr_text, resamp_text))
+        T21_path = os.path.join(generation_dir_model, 'test_%d_%d_%s_%s_%s_R21.npz'%(n1, n2, noise_text, ctr_text, resamp_text))
+        pcl1_path = os.path.join(generation_dir_model, 'test_%d_%d_%s_%s_%s_pcl_1.npy'%(n1, n2, noise_text, ctr_text, resamp_text))
+        pcl2_path = os.path.join(generation_dir_model, 'test_%d_%d_%s_%s_%s_pcl_2.npy'%(n1, n2, noise_text, ctr_text, resamp_text))
 
         with open(T21_path, 'wb') as f:
             np.savez(f, **R21_dict)

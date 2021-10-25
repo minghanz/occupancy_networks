@@ -38,6 +38,8 @@ generation:
   generate_mesh: false
   generate_pointcloud: false
   copy_input: false
+  output_regis_result: true
+  # vis_n_outputs: 0
   
   centralize: false
   n1: 1024
