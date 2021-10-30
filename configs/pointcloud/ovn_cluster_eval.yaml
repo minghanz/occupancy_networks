@@ -1,15 +1,19 @@
 inherit_from: configs/pointcloud/ovn_cluster.yaml
 # inherit_from: configs/pointcloud/onet_vn_curly_modelnet40_24bs_ball_svd_dual.yaml
 data:
+  dataset: modelnet
+  path: /scratch/hpeng_root/hpeng1/minghanz/ModelNet40
+  category_file: im2mesh/data/modelnet40_cat_fmr.txt
+  uniform_sampling: true
   pointcloud_n_val: 1024
   rotate_test: 180
-  pointcloud_noise: 0.0
+  pointcloud_noise: 0.01
   duo_mode: false
   resamp_mode: false
   pointcloud_file_bench_1: test_1024_1024_01_nctrd_nresamp_pcl_1.npy
   pointcloud_file_bench_2: test_1024_1024_01_nctrd_nresamp_pcl_2.npy
   T21_file: test_1024_1024_01_nctrd_nresamp_R21.npz
-  path_bench: /scratch/hpeng_root/hpeng1/minghanz/for_occnet/ModelNet40_benchmark
+  path_bench: /scratch/hpeng_root/hpeng1/minghanz/for_occnet/ModelNet40_fmr_benchmark
 # data:
 #   dataset: 7scene
 #   path: /scratch/hpeng_root/hpeng1/minghanz/for_occnet/7scene
@@ -25,7 +29,7 @@ test:
   # model_file: model_best.pt
   lk_mode: false
   reg: true
-  reg_benchmark: true
+  reg_benchmark: false # true
 # model:
 #   encoder_kwargs:
 #     ball_radius: 0 #0.2
@@ -33,12 +37,12 @@ generation:
   # generation_dir: trained_400k_best_1000pts_xyz
   # generation_dir: trained_test_on_modelnet40
   # generation_dir: randomrot_1000k_1k_180_duo_7scene
-  generation_dir: randomrot_600k_1k_180_noise_bench
+  generation_dir: randomrot_600k_1k_180_fmr_noise
   record_worst_best: false
   generate_mesh: false
   generate_pointcloud: false
-  copy_input: false
-  output_regis_result: true
+  copy_input: true
+  output_regis_result: false
   # vis_n_outputs: 0
   
   centralize: false

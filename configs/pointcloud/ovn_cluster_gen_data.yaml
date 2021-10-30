@@ -1,5 +1,9 @@
 inherit_from: configs/pointcloud/ovn_cluster.yaml
 data:
+  dataset: modelnet
+  path: /scratch/hpeng_root/hpeng1/minghanz/ModelNet40
+  category_file: im2mesh/data/modelnet40_cat_fmr.txt
+  uniform_sampling: false
   pointcloud_n_val: 1024
   rotate_test: 180
   pointcloud_noise: 0.01
@@ -18,7 +22,7 @@ test:
   reg: true
   reg_benchmark: false
 generation:
-  generation_dir: ModelNet40_benchmark
+  generation_dir: ModelNet40_fmr_benchmark_notunif_train
   centralize: false
   n1: 1024
   n2: 1024

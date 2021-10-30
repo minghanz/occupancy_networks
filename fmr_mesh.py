@@ -8,7 +8,7 @@ import matplotlib.pyplot
 
 # used to read ply files
 from plyfile import PlyData
-# import open3d as o3d
+import open3d as o3d
 import numpy as np
 
 
@@ -107,16 +107,16 @@ class Mesh:
         self._vertices = list(map(tuple, v))
         return self
 
-# def offread_uniformed(filepath, sampled_pt_num=1024):
-#     """ read OFF mesh file and uniformly sample points on the mesh. """
-#     mesh = Mesh()
-#     input = o3d.io.read_triangle_mesh(filepath)
-#     pointCloud = input.sample_points_uniformly(sampled_pt_num)
-#     points = np.asarray(pointCloud.points)
-#     pts = tuple(map(tuple, points))
-#     mesh._vertices = pts
+def offread_uniformed(filepath, sampled_pt_num=1024):
+    """ read OFF mesh file and uniformly sample points on the mesh. """
+    mesh = Mesh()
+    input = o3d.io.read_triangle_mesh(filepath)
+    pointCloud = input.sample_points_uniformly(sampled_pt_num)
+    points = np.asarray(pointCloud.points)
+    pts = tuple(map(tuple, points))
+    mesh._vertices = pts
 
-#     return mesh
+    return mesh
     
 def offread(filepath, points_only=True):
     """ read Geomview OFF file. """

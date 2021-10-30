@@ -130,7 +130,9 @@ def get_dataset(mode, cfg, return_idx=False, return_category=False, data_key='da
     bench_input_folder = cfg[data_key].get('path_bench', None) if reg_benchmark_mode else None
     
     # Create dataset
-    if dataset_type == 'Shapes3D':
+    if dataset_type == 'modelnet':
+        dataset = data.fmr_get_dataset(cfg, mode)
+    elif dataset_type == 'Shapes3D':
         categories = cfg[data_key]['classes']
 
         # Get split
@@ -170,6 +172,12 @@ def get_dataset(mode, cfg, return_idx=False, return_category=False, data_key='da
             categories=categories,
             bench_input_folder=bench_input_folder,
         )
+        if reg_mode:
+            rot_magmax = cfg[data_key]['rotate_test'] if mode == 'test' else cfg[data_key]['rotate']
+            resamp_mode = cfg[data_key]['resamp_mode']
+            pcl_noise = cfg[data_key]['pointcloud_noise']
+            dataset = data.PairedDataset(dataset, rot_magmax, duo_mode, reg_benchmark_mode, resamp_mode, pcl_noise)
+
     elif dataset_type == 'kitti':
         dataset = data.KittiDataset(
             dataset_folder, img_size=cfg[data_key]['img_size'],
@@ -201,12 +209,6 @@ def get_dataset(mode, cfg, return_idx=False, return_category=False, data_key='da
     if data_key == 'data' and 'data2' in cfg and mode == 'train':
         dataset2 = get_dataset(mode, cfg, return_idx, return_category, data_key='data2')
         dataset = [dataset, dataset2]
-
-    if reg_mode:
-        rot_magmax = cfg[data_key]['rotate_test'] if mode == 'test' else cfg[data_key]['rotate']
-        resamp_mode = cfg[data_key]['resamp_mode']
-        pcl_noise = cfg[data_key]['pointcloud_noise']
-        dataset = data.PairedDataset(dataset, rot_magmax, duo_mode, reg_benchmark_mode, resamp_mode, pcl_noise)
 
     return dataset
 

@@ -41,11 +41,13 @@ class PairedDataset(Dataset):
 
     For training: 
     Max number resampling is per instance. 
-    Gaussian noise is per instance.
+
+    Gaussian noise is per pair. (applied per instance but it takes place at PairedDataset because we may want different noise on the same sampled point cloud)
     Generation of rigid body transformation is per pair. 
+
     Resampling for randomness in number of points is per batch. (so that we can have randomness in number of points but consistent in a batch)
-    Application of rigid body transformation is per batch. (so that the operation of transformation is on the same device as registration)
-    Optional centering is per batch. 
+    Application of rigid body transformation is per pair after generating the generation or per batch. (per batch so that the operation of transformation is on the same device as registration)
+    Optional centering is per batch. (after all sampling)
 
     For testing:
     No resampling or Gaussian noise. 
@@ -107,11 +109,11 @@ class PairedDataset(Dataset):
         if 'points' in data:
             data['points'] = apply_transformation(T21, data['points'])
         ### Centralize inputs and inputs_2 to unit cube using the same spec
-        data['inputs'], spec = self.unitcube_op(data['inputs'])
-        data['inputs_2'], _ = self.unitcube_op(data['inputs_2'], spec)
+        data['inputs'], spec = self.unitcube_op(data['inputs'], return_spec=True)
+        data['inputs_2'] = self.unitcube_op(data['inputs_2'], spec)
         if 'points' in data:
-            data['points'], _ = self.unitcube_op(data['points'], spec)
-            data['points_2'], _ = self.unitcube_op(data['points_2'], spec)
+            data['points'] = self.unitcube_op(data['points'], spec)
+            data['points_2'] = self.unitcube_op(data['points_2'], spec)
         return
 
     def __getitem__(self, idx):
@@ -119,27 +121,28 @@ class PairedDataset(Dataset):
         totensor_inplace(data)
         if self.reg_benchmark_mode:
             assert 'inputs_2' in data and 'T21' in data, "{}".format(list(data.keys()))
-        elif self.duo_mode:
-            self.duo_load(idx, data)
-            self.duo_preprocess(data)
-            assert 'inputs_2' in data and 'T21' not in data
         else:
-            ### when not duo_mode or reg_benchmark_mode (which both gives 'inputs_2' item)
-            if self.resamp_mode:
-                self.dataset.load_field(idx, data, 'inputs_2', self.dataset.fields['inputs'])
+            if self.duo_mode:
+                self.duo_load(idx, data)
+                self.duo_preprocess(data)
+                assert 'inputs_2' in data and 'T21' not in data
             else:
-                data['inputs_2'] = data['inputs'].clone()
-            data['points_2'] = data['points'].clone()
-            totensor_inplace(data)
-            assert 'inputs_2' in data and 'T21' not in data
+                ### when not duo_mode or reg_benchmark_mode (which both gives 'inputs_2' item)
+                if self.resamp_mode:
+                    self.dataset.load_field(idx, data, 'inputs_2', self.dataset.fields['inputs'])
+                else:
+                    data['inputs_2'] = data['inputs'].clone()
+                data['points_2'] = data['points'].clone()
+                totensor_inplace(data)
+                assert 'inputs_2' in data and 'T21' not in data
 
-        if 'T21' not in data:
-            rotmat, deg = gen_randrot(self.rot_magmax)
-            data['T21'] = rotmat
-            data['T21.deg'] = deg
+            if 'T21' not in data:
+                rotmat, deg = gen_randrot(self.rot_magmax)
+                data['T21'] = rotmat
+                data['T21.deg'] = deg
 
-        if self.noise_op is not None:
-            self.noise_op(data)
+            if self.noise_op is not None:
+                self.noise_op(data)
 
         # ### rotate one of the pair
         # data['inputs_2'] = apply_rot(data['T21'], data['inputs'])

@@ -45,7 +45,7 @@ class OnUnitCube:
         v = v / s * 0.5
         return v
 
-    def method2(self, tensor, spec=None):
+    def method2(self, tensor, spec=None, return_spec=False):
         if spec is not None:
             s, m = spec
             v = tensor / s
@@ -55,11 +55,14 @@ class OnUnitCube:
             s = torch.max(c)  # -> scalar
             v = tensor / s
             m = v.mean(dim=0, keepdim=True)
-        return v - m, (s, m)
+        if return_spec:
+            return v - m, (s, m)
+        else:
+            return v - m
 
-    def __call__(self, tensor, spec=None):
+    def __call__(self, tensor, spec=None, return_spec=False):
         # return self.method1(tensor)
-        return self.method2(tensor, spec)
+        return self.method2(tensor, spec, return_spec)
 
 
 class Resampler:
@@ -199,7 +202,9 @@ class RandomTransformSE3:
         g = se3.exp(x).to(p0)  # [1, 4, 4]
         gt = se3.exp(-x).to(p0)  # [1, 4, 4]
 
+        # p0 = p0.transpose(-1, -2).unsqueeze(0)
         p1 = se3.transform(g, p0)
+        # p1 = p1.transpose(-1, -2).squeeze(0)
         self.gt = gt.squeeze(0)  # gt: p1 -> p0
         self.igt = g.squeeze(0)  # igt: p0 -> p1
         return p1

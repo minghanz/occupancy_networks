@@ -18,7 +18,7 @@ from im2mesh.data.real import (
     ImageDataset,
 )
 from im2mesh.data.scenes7 import get_datasets_7scenes
-
+from im2mesh.data.fmr_dataset import fmr_get_dataset
 __all__ = [
     # Core
     Shapes3dDataset,
@@ -44,5 +44,6 @@ __all__ = [
     OnlineProductDataset,
     ImageDataset,
     # ModelNetDataLoader, 
-    get_datasets_7scenes
+    get_datasets_7scenes,
+    fmr_get_dataset,
 ]

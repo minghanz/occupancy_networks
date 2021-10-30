@@ -31,6 +31,8 @@ def solve_R(f1, f2):
     return R
 
 def angle_of_R(R):
+    if isinstance(R, np.ndarray):
+        R = torch.from_numpy(R)
     # logging.info("R_diff", R_diff)
     cos_angle_diff = (torch.diagonal(R, dim1=-2, dim2=-1).sum(-1)  - 1) / 2
     # logging.info("cos_angle_diff", cos_angle_diff)
