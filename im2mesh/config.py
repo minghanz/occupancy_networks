@@ -131,7 +131,7 @@ def get_dataset(mode, cfg, return_idx=False, return_category=False, data_key='da
     
     # Create dataset
     if dataset_type == 'modelnet':
-        dataset = data.fmr_get_dataset(cfg, mode)
+        dataset = data.fmr_get_dataset(cfg[data_key], mode)
     elif dataset_type == 'Shapes3D':
         categories = cfg[data_key]['classes']
 

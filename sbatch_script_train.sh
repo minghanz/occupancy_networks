@@ -26,7 +26,8 @@ echo ipnip=$ipnip
 # python train.py configs/pointcloud/onet_cluster.yaml
 # python train.py configs/pointcloud/onet_vn_cluster_modelnet40_24bs.yaml
 # python train.py configs/pointcloud/onet_vn_cluster_modelnet40_24bs_ball_svd.yaml
-python train.py configs/pointcloud/onet_vn_cluster_modelnet40_24bs_ball_svd_dual.yaml
+# python train.py configs/pointcloud/onet_vn_cluster_modelnet40_24bs_ball_svd_dual.yaml
+python train.py configs/pointcloud/ovn_cluster.yaml
 
 # python train.py configs/pointcloud/onet_vn_cluster_modelnet40_513c_512pts.yaml
 # python train.py configs/pointcloud/onet_vn_cluster_modelnet40_512pts.yaml

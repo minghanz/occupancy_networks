@@ -1,5 +1,23 @@
 inherit_from: configs/pointcloud/onet_vn.yaml
 data:
+  # dataset: modelnet
+  # path: /scratch/hpeng_root/hpeng1/minghanz/ModelNet40
+  # category_file: im2mesh/data/modelnet40_cat_fmr.txt
+  # uniform_sampling: true
+  path: /scratch/hpeng_root/hpeng1/minghanz/for_occnet/ModelNet40_install
+  voxels_file: null
+  pointcloud_n: 1200
+  pointcloud_n_val: 1024
+  pointcloud_noise: 0.01
+  rotate: 180
+  rotate_test: 180
+  duo_mode: false
+  resamp_mode: true # false
+  # pointcloud_file_bench_1: 
+  # pointcloud_file_bench_2: 
+  # T_file: 
+  # T21_file: 
+data2:
   dataset: modelnet
   path: /scratch/hpeng_root/hpeng1/minghanz/ModelNet40
   category_file: im2mesh/data/modelnet40_cat_fmr.txt
@@ -13,10 +31,6 @@ data:
   rotate_test: 180
   duo_mode: false
   resamp_mode: true # false
-  # pointcloud_file_bench_1: 
-  # pointcloud_file_bench_2: 
-  # T_file: 
-  # T21_file: 
 # data:
 #   dataset: 7scene
 #   path: /media/minghanz/DATA/datasets/extracted/for_occnet/7scene
@@ -47,7 +61,7 @@ training:
   angloss_w: 10 #10 #100
   closs_w: 0
   lk_mode: false
-  occloss_w: 0 #1 #0.01 #1
+  occloss_w: 0.01 #1 #0.01 #1
   cos_loss: false  # true
   cos_mse: false   # true
   lk_supp: false
@@ -61,13 +75,13 @@ training:
   print_every: 200 # 200
   visualize_every: 30000 #30000
   checkpoint_every: 10000 #10000
-  validate_every: 30000 #30000
-  backup_every: 50000 #25000 #50000
+  validate_every: 30000  # use 0 if no evaluation on occ
+  backup_every: 30000 #25000 #50000
   # out_dir:  out/pointcloud/onet_vn_modelnet40_ball_svd0_mean_nn50_grelu
   # out_dir:  out/pointcloud/onet_vn_modelnet40_24bs_ball_mean
   # out_dir: /scratch/hpeng_root/hpeng1/minghanz/tmp/occ_net/onet_vn_modelnet40_24bs_ball02_k20_mean_svd100
   # out_dir: /scratch/hpeng_root/hpeng1/minghanz/tmp/occ_net/onet_vn_modelnet40_24bs_ball_svd10_lr700k
   # out_dir: /scratch/hpeng_root/hpeng1/minghanz/tmp/occ_net/onet_vn_modelnet40_24bs_knn_svd10
-  out_dir: /scratch/hpeng_root/hpeng1/minghanz/tmp/occ_net/onet_vn_modelnet40_24bs_knn_fmr_svd10
+  out_dir: /scratch/hpeng_root/hpeng1/minghanz/tmp/occ_net/ovn_modelnet40_24bs_knn_ofmr_svd10
   # out_dir: /media/minghanz/DATA/tmp/occ_net/onet_vn_modelnet40_24bs_knn_svd1_7scene
   # out_dir: /scratch/hpeng_root/hpeng1/minghanz/tmp/occ_net/onet_vn_modelnet40_24bs_knn_svd10 #_shiftsep

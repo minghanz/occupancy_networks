@@ -274,19 +274,19 @@ class TransformedDataset(torch.utils.data.Dataset):
         # return p0, p1, igt
         return data
 
-def fmr_get_dataset(cfg, mode):
+def fmr_get_dataset(cfg_data, mode):
 # global dataset function, could call to get dataset
-    dataset_type = cfg['data']['dataset']
+    dataset_type = cfg_data['dataset']
     if dataset_type == 'modelnet':
         # if args.mode == 'train':
         if True:
             # set path and category file for training
             npt_key = 'pointcloud_n_val' if mode == 'test' else 'pointcloud_n'
-            num_points = cfg['data'][npt_key]
+            num_points = cfg_data[npt_key]
             # args.categoryfile = './data/categories/modelnet40_half1.txt'
             # args.categoryfile = './data/categories/modelnet40.txt'
-            cinfo = get_categories(cfg['data'].get('category_file', '') )
-            assert cinfo is not None, cfg['data'].get('category_file', '')
+            cinfo = get_categories(cfg_data.get('category_file', '') )
+            assert cinfo is not None, cfg_data.get('category_file', '')
             transform = torchvision.transforms.Compose([ \
                 transforms.Mesh2Points(), \
                 transforms.OnUnitCube(), \
@@ -294,8 +294,8 @@ def fmr_get_dataset(cfg, mode):
                 ])
 
             # args.dataset_path = './data/ModelNet40'
-            dataset_path = cfg['data']['path']
-            is_uniform_sampling = cfg['data'].get('uniform_sampling', True)
+            dataset_path = cfg_data['path']
+            is_uniform_sampling = cfg_data.get('uniform_sampling', True)
             ### always use uniform sampling, because otherwise the point cloud is in abnormal shape
             if mode == 'train':
                 dataset_one = ModelNet(dataset_path, train=1, transform=transform, classinfo=cinfo, is_uniform_sampling=is_uniform_sampling)
@@ -304,10 +304,10 @@ def fmr_get_dataset(cfg, mode):
 
             mag_randomly = True #False #True
             rot_mag_key = 'rotate_test' if mode == 'test' else 'rotate'
-            rot_mag = cfg['data'][rot_mag_key]
+            rot_mag = cfg_data[rot_mag_key]
             trans_mag = 0
-            resampling = cfg['data']['resamp_mode']
-            noise = cfg['data']['pointcloud_noise']
+            resampling = cfg_data['resamp_mode']
+            noise = cfg_data['pointcloud_noise']
 
             dataset = TransformedDataset(dataset_one, transforms.RandomTransformSE3(rot_mag, mag_randomly, trans_mag), resampling=resampling, noise=noise)
             # return trainset, testset

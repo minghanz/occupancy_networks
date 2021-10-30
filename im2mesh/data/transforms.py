@@ -211,7 +211,9 @@ class SubsamplePointcloud(object):
         points = data[None]
         normals = data['normals']
 
-        indices = np.random.randint(points.shape[0], size=self.N)
+        # indices = np.random.randint(points.shape[0], size=self.N)
+        indices = np.random.permutation(points.shape[0])[:self.N]
+
         data_out[None] = points[indices, :]
         data_out['normals'] = normals[indices, :]
 
@@ -240,7 +242,8 @@ class SubsamplePoints(object):
 
         data_out = data.copy()
         if isinstance(self.N, int):
-            idx = np.random.randint(points.shape[0], size=self.N)
+            # idx = np.random.randint(points.shape[0], size=self.N)
+            idx = np.random.permutation(points.shape[0])[:self.N]
             data_out.update({
                 None: points[idx, :],
                 'occ':  occ[idx],
@@ -251,8 +254,10 @@ class SubsamplePoints(object):
             points0 = points[~occ_binary]
             points1 = points[occ_binary]
 
-            idx0 = np.random.randint(points0.shape[0], size=Nt_out)
-            idx1 = np.random.randint(points1.shape[0], size=Nt_in)
+            # idx0 = np.random.randint(points0.shape[0], size=Nt_out)
+            # idx1 = np.random.randint(points1.shape[0], size=Nt_in)
+            idx0 = np.random.permutation(points0.shape[0])[:Nt_out]
+            idx1 = np.random.permutation(points1.shape[0])[:Nt_in]
 
             points0 = points0[idx0, :]
             points1 = points1[idx1, :]
